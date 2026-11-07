@@ -29,11 +29,11 @@ public static class MaterialTree
             var opened = false;
             try
             {
-                var caption = MaterialNativeCaption.Visible(label);
-                if (!MaterialNativeCaption.IsShaped(caption))
+                if (!MaterialNativeCaption.IsShaped(MaterialNativeCaption.VisibleSpan(label)))
                     Visible = ImGui.TreeNodeEx("##node", flags, label);
                 else
                 {
+                    var caption = MaterialNativeCaption.Visible(label);
                     var origin = ImGui.GetCursorScreenPos();
                     var list = ImGui.GetWindowDrawList();
                     var first = list.VtxBuffer.Size;

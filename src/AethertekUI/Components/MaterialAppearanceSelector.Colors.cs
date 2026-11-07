@@ -88,11 +88,11 @@ public static partial class MaterialAppearanceSelector
         var blurFields = Has(labels.BackgroundBlur) && Has(labels.BlurPercent);
         var modern = styles || lcarsFields || Has(labels.Reset) || Has(labels.ResetColors) || backgroundFields || blurFields;
         var scale = MaterialTheme.Metrics.Scale;
-        var fieldLabels = modern
-            ? new[] { labels.Background, labels.Controls, labels.Text, labels.LcarsBar1, labels.LcarsBar2, labels.LcarsBar3,
-                labels.GlassWave1, labels.GlassWave2, labels.GlassWave3, labels.GlassLight1, labels.GlassLight2, labels.GlassLight3 }
-            : [labels.Background, labels.Controls, labels.Text];
-        var labelWidth = fieldLabels.Where(Has).Max(label => MaterialText.Measure(label!).X);
+        var labelWidth = WidestLabel(labels.Background, labels.Controls, labels.Text);
+        if (modern)
+            labelWidth = Math.Max(labelWidth, WidestLabel(labels.LcarsBar1, labels.LcarsBar2, labels.LcarsBar3,
+                labels.GlassWave1, labels.GlassWave2, labels.GlassWave3, labels.GlassLight1, labels.GlassLight2, labels.GlassLight3));
+        if (float.IsNegativeInfinity(labelWidth)) throw new InvalidOperationException("Sequence contains no elements");
         var editorWidth = MathF.Ceiling(Math.Max(100 * scale, ImGui.CalcTextSize("#FFFFFF").X + 2 * ImGui.GetStyle().FramePadding.X)
             + ImGui.GetFrameHeight() + ImGui.GetStyle().ItemInnerSpacing.X);
         var resetWidth = Has(labels.Reset) ? MaterialText.Measure(labels.Reset!).X + 2 * ImGui.GetStyle().FramePadding.X : 0;
@@ -283,6 +283,14 @@ public static partial class MaterialAppearanceSelector
     }
 
     private static bool Has(string? label) => !string.IsNullOrWhiteSpace(label);
+    /// <summary>Widest present label, or negative infinity when none is present.</summary>
+    private static float WidestLabel(params ReadOnlySpan<string?> labels)
+    {
+        var width = float.NegativeInfinity;
+        foreach (var label in labels)
+            if (Has(label)) width = Math.Max(width, MaterialText.Measure(label!).X);
+        return width;
+    }
 
     private static void StyleChoice(string id, string label, MaterialColorMode option, float right, ref MaterialColorMode mode, ref bool committed)
     {

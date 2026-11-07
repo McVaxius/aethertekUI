@@ -11,6 +11,21 @@ public static unsafe class MaterialShapedInput
 {
     [ThreadStatic] private static EditorProxy? activeProxy;
     [ThreadStatic] private static ClipboardScope? clipboardScope;
+    [ThreadStatic] private static Dictionary<(nint Context, uint Id, bool Multiline), EditorProxy>? spareProxies;
+
+    /// <summary>
+    /// A proxy equivalent to a new one. An idle field otherwise created a proxy (two dictionaries)
+    /// every frame; one that never gained tokens or a preferred column is indistinguishable from new.
+    /// </summary>
+    private static EditorProxy FreshProxy(nint context, uint id, bool multiline)
+    {
+        spareProxies ??= new();
+        var key = (context, id, multiline);
+        if (spareProxies.TryGetValue(key, out var spare) && !spare.HasTokens && spare.PreferredX is null)
+            return spare;
+        if (spareProxies.Count >= 64) spareProxies.Clear();
+        return spareProxies[key] = new EditorProxy(context, id, multiline);
+    }
 
     /// <summary>Preserves the supplied native ID and existing field geometry. The caller reserves the shaped line height.</summary>
     public static bool SingleLine(string nativeId, string hint, ref string value, int maxLength, ImGuiInputTextFlags flags = ImGuiInputTextFlags.None)
@@ -26,49 +41,192 @@ public static unsafe class MaterialShapedInput
         if (!NeedsShaping(value) && !NeedsShaping(hint) && !retainedProxy)
             return ImGui.InputTextWithHint(nativeId, hint, ref value, maxLength, flags);
 
-        var fontSize = ImGui.GetFontSize();
-        var before = value;
-        var padding = ImGui.GetStyle().FramePadding;
-        var frameMin = ImGui.GetCursorScreenPos();
-        var frameMax = frameMin + new Vector2(ImGui.CalcItemWidth(), ImGui.GetFrameHeight());
-        var proxy = activeProxy is { } existing && existing.Context == (nint)context.Handle
-            && existing.Id == id && context.InputTextState.ID == id ? existing : new EditorProxy((nint)context.Handle, id);
-        var nativeValue = proxy.Encode(value);
-        var stateBefore = ImGuiP.GetInputTextState(id);
-        var wasActive = !stateBefore.IsNull && ImGui.GetCurrentContext().ActiveId == id;
-        var cursorBefore = wasActive ? proxy.ToSourcePosition(nativeValue, stateBefore.Stb.Cursor) : -1;
-        var anchorBefore = wasActive ? proxy.ToSourcePosition(nativeValue, stateBefore.Stb.SelectStart) : -1;
-        var selectionEndBefore = wasActive ? proxy.ToSourcePosition(nativeValue, stateBefore.Stb.SelectEnd) : -1;
-        var scrollBefore = wasActive ? stateBefore.ScrollX : 0;
-        var io = ImGui.GetIO();
-        var left = ImGui.IsKeyPressed(ImGuiKey.LeftArrow);
-        var right = ImGui.IsKeyPressed(ImGuiKey.RightArrow);
-        var mousePoint = io.MousePos;
-        var mouseClicked = io.MouseClicked[0] && Inside(mousePoint, frameMin, frameMax);
-        var dragging = wasActive && io.MouseDown[0] && !stateBefore.SelectedAllMouseLock;
-        var shift = io.KeyShift;
-        var control = io.KeyCtrl;
-        var tint = ImGui.GetColorU32(ImGuiCol.Text);
-        var hintTint = ImGui.GetColorU32(ImGuiCol.TextDisabled);
-        var selectionTint = ImGui.GetColorU32(ImGuiCol.TextSelectedBg);
-        Exception? callbackError = null;
-        using var clipboard = new ClipboardScope(proxy, Math.Max(maxLength, Encoding.UTF8.GetByteCount(before)));
+        var edit = SingleLineEdit.Rent();
+        try { return edit.Run(renderer, nativeId, hint, ref value, maxLength, flags, id, context); }
+        finally { edit.Return(); }
+    }
 
-        // Native word selection must hit the same source cluster as the shaped pointer.
-        // The second click already has a native state, so its input-only scroll can map
-        // the real pointer to native codepoint widths without altering global mouse data.
-        if (mouseClicked && io.MouseClickedCount[0] >= 2 && wasActive)
+    /// <summary>
+    /// The shaped SingleLine editor. Its native callback reads per-call state from fields of a
+    /// reused instance, so neither the native path nor each shaped frame allocates a closure.
+    /// </summary>
+    private sealed class SingleLineEdit
+    {
+        [ThreadStatic] private static SingleLineEdit? free;
+        private readonly ImGui.ImGuiInputTextCallbackDelegate callback;
+        private MaterialTextRenderer renderer = null!;
+        private uint id;
+        private float fontSize;
+        private string before = "";
+        private Vector2 padding, frameMin, frameMax, mousePoint;
+        private EditorProxy proxy = null!;
+        private bool wasActive, left, right, mouseClicked, dragging, shift, control;
+        private int cursorBefore, anchorBefore, selectionEndBefore;
+        private float scrollBefore;
+        private ImGuiIOPtr io;
+        private Exception? callbackError;
+        private ClipboardScope clipboard = null!;
+
+        private SingleLineEdit() => callback = Callback;
+
+        internal static SingleLineEdit Rent()
         {
-            var layout = renderer.GetLayout(before, fontSize);
-            var hit = layout.HitTestPoint(mousePoint - TextOrigin(frameMin, frameMax, padding, layout.Size.Y)
-                + new Vector2(scrollBefore, 0));
-            var sourcePosition = hit.Position + (hit.Trailing ? hit.Length : 0);
-            var nativePosition = proxy.ToNativePosition(nativeValue, sourcePosition);
-            var nativeWidth = ImGui.CalcTextSize(nativeValue[..nativePosition]).X;
-            stateBefore.ScrollX = nativeWidth - (mousePoint.X - frameMin.X - padding.X);
+            var edit = free ?? new SingleLineEdit();
+            free = null;
+            return edit;
         }
 
-        ImGui.ImGuiInputTextCallbackDelegate callback = (ref ImGuiInputTextCallbackData data) =>
+        internal void Return()
+        {
+            renderer = null!; proxy = null!; clipboard = null!; before = ""; callbackError = null;
+            free = this;
+        }
+
+        internal bool Run(MaterialTextRenderer renderer, string nativeId, string hint, ref string value, int maxLength,
+            ImGuiInputTextFlags flags, uint id, ImGuiContextPtr context)
+        {
+            this.renderer = renderer;
+            this.id = id;
+            fontSize = ImGui.GetFontSize();
+            before = value;
+            padding = ImGui.GetStyle().FramePadding;
+            frameMin = ImGui.GetCursorScreenPos();
+            frameMax = frameMin + new Vector2(ImGui.CalcItemWidth(), ImGui.GetFrameHeight());
+            proxy = activeProxy is { } existing && existing.Context == (nint)context.Handle
+                && existing.Id == id && context.InputTextState.ID == id ? existing : FreshProxy((nint)context.Handle, id, false);
+            var nativeValue = proxy.Encode(value);
+            var stateBefore = ImGuiP.GetInputTextState(id);
+            wasActive = !stateBefore.IsNull && ImGui.GetCurrentContext().ActiveId == id;
+            cursorBefore = wasActive ? proxy.ToSourcePosition(nativeValue, stateBefore.Stb.Cursor) : -1;
+            anchorBefore = wasActive ? proxy.ToSourcePosition(nativeValue, stateBefore.Stb.SelectStart) : -1;
+            selectionEndBefore = wasActive ? proxy.ToSourcePosition(nativeValue, stateBefore.Stb.SelectEnd) : -1;
+            scrollBefore = wasActive ? stateBefore.ScrollX : 0;
+            io = ImGui.GetIO();
+            left = ImGui.IsKeyPressed(ImGuiKey.LeftArrow);
+            right = ImGui.IsKeyPressed(ImGuiKey.RightArrow);
+            mousePoint = io.MousePos;
+            mouseClicked = io.MouseClicked[0] && Inside(mousePoint, frameMin, frameMax);
+            dragging = wasActive && io.MouseDown[0] && !stateBefore.SelectedAllMouseLock;
+            shift = io.KeyShift;
+            control = io.KeyCtrl;
+            var tint = ImGui.GetColorU32(ImGuiCol.Text);
+            var hintTint = ImGui.GetColorU32(ImGuiCol.TextDisabled);
+            var selectionTint = ImGui.GetColorU32(ImGuiCol.TextSelectedBg);
+            callbackError = null;
+            clipboard = ClipboardScope.Open(proxy, Math.Max(maxLength, Encoding.UTF8.GetByteCount(before)));
+            try
+            {
+                // Native word selection must hit the same source cluster as the shaped pointer.
+                // The second click already has a native state, so its input-only scroll can map
+                // the real pointer to native codepoint widths without altering global mouse data.
+                if (mouseClicked && io.MouseClickedCount[0] >= 2 && wasActive)
+                {
+                    var layout = renderer.GetLayout(before, fontSize);
+                    var hit = layout.HitTestPoint(mousePoint - TextOrigin(frameMin, frameMax, padding, layout.Size.Y)
+                        + new Vector2(scrollBefore, 0));
+                    var sourcePosition = hit.Position + (hit.Trailing ? hit.Length : 0);
+                    var nativePosition = proxy.ToNativePosition(nativeValue, sourcePosition);
+                    var nativeWidth = ImGui.CalcTextSize(nativeValue[..nativePosition]).X;
+                    stateBefore.ScrollX = nativeWidth - (mousePoint.X - frameMin.X - padding.X);
+                }
+
+
+                bool changed;
+                ImGui.PushStyleColor(ImGuiCol.Text, Vector4.Zero);
+                ImGui.PushStyleColor(ImGuiCol.TextDisabled, Vector4.Zero);
+                ImGui.PushStyleColor(ImGuiCol.TextSelectedBg, Vector4.Zero);
+                try
+                {
+                    changed = ImGui.InputTextWithHint(nativeId, hint, ref nativeValue, maxLength,
+                        flags | ImGuiInputTextFlags.CallbackAlways | ImGuiInputTextFlags.CallbackCharFilter, callback);
+                }
+                finally
+                {
+                    ImGui.PopStyleColor(3);
+                    if (!stateBefore.IsNull)
+                        stateBefore.ScrollX = scrollBefore;
+                }
+                value = proxy.Decode(nativeValue);
+                if (context.InputTextState.ID == id)
+                    activeProxy = proxy;
+                if (callbackError is not null || clipboard.Error is not null)
+                    throw new InvalidOperationException("The shaped editor callback failed.", callbackError ?? clipboard.Error);
+
+                frameMin = ImGui.GetItemRectMin();
+                frameMax = ImGui.GetItemRectMax();
+                var active = ImGui.IsItemActive();
+                var drawList = ImGui.GetWindowDrawList();
+                var text = value.Length == 0 ? hint : value;
+                var painted = renderer.GetLayout(text, fontSize);
+                var originAfter = TextOrigin(frameMin, frameMax, padding, painted.Size.Y);
+                var clipMin = new Vector2(frameMin.X + padding.X, frameMin.Y);
+                var clipMax = new Vector2(frameMax.X - padding.X, frameMax.Y);
+                clipMax = Vector2.Max(clipMin, clipMax);
+                var state = ImGuiP.GetInputTextState(id);
+                var scroll = scrollBefore;
+                var caret = Vector2.Zero;
+                var caretHeight = painted.Size.Y;
+                if (active && !state.IsNull)
+                {
+                    var layout = renderer.GetLayout(value, fontSize);
+                    var cursor = proxy.ToSourcePosition(nativeValue, state.Stb.Cursor);
+                    caret = layout.HitTestPosition(cursor);
+                    caretHeight = layout.Size.Y;
+                    var visibleWidth = Math.Max(1, clipMax.X - clipMin.X);
+                    if ((flags & ImGuiInputTextFlags.NoHorizontalScroll) != 0)
+                        scroll = 0;
+                    else
+                    {
+                        if (caret.X < scroll)
+                            scroll = Math.Max(0, caret.X - visibleWidth * .25f);
+                        else if (caret.X >= scroll + visibleWidth)
+                            scroll = Math.Max(0, caret.X - visibleWidth * .75f);
+                        scroll = Math.Clamp(scroll, 0, Math.Max(0, layout.Size.X - visibleWidth));
+                    }
+                    state.ScrollX = scroll;
+                    ref var ime = ref ImGui.GetCurrentContext().PlatformImeData;
+                    ime.InputPos = originAfter + caret - new Vector2(scroll, 0);
+                    ime.InputLineHeight = caretHeight;
+                }
+                else
+                    scroll = 0;
+
+                // Admit leading glyph overhang into the native frame's existing padding.
+                // Keep the padded boundary while scrolling, and retain the original
+                // text origin, visible width, pointer geometry and caret positions.
+                if (scroll == 0)
+                    clipMin.X = frameMin.X;
+
+                drawList.PushClipRect(clipMin, clipMax, true);
+                try
+                {
+                    if (active && !state.IsNull && state.Stb.SelectStart != state.Stb.SelectEnd)
+                    {
+                        var layout = renderer.GetLayout(value, fontSize);
+                        var start = proxy.ToSourcePosition(nativeValue, Math.Min(state.Stb.SelectStart, state.Stb.SelectEnd));
+                        var end = proxy.ToSourcePosition(nativeValue, Math.Max(state.Stb.SelectStart, state.Stb.SelectEnd));
+                        foreach (var rectangle in layout.HitTestRange(start, end - start))
+                            drawList.AddRectFilled(originAfter + rectangle.Min - new Vector2(scroll, 0),
+                                originAfter + rectangle.Max - new Vector2(scroll, 0), selectionTint);
+                    }
+
+                    renderer.Draw(drawList, originAfter - new Vector2(scroll, 0), value.Length == 0 ? hintTint : tint, text, fontSize);
+                    if (active && !state.IsNull && (!io.ConfigInputTextCursorBlink || state.CursorAnim <= 0 || state.CursorAnim % 1.2f <= .8f))
+                    {
+                        var point = originAfter + caret - new Vector2(scroll, 0);
+                        drawList.AddLine(point, point + new Vector2(0, caretHeight), tint);
+                    }
+                }
+                finally
+                {
+                    drawList.PopClipRect();
+                }
+                return changed;
+            }
+            finally { clipboard.Dispose(); }
+        }
+
+        private int Callback(ref ImGuiInputTextCallbackData data)
         {
             try
             {
@@ -131,99 +289,7 @@ public static unsafe class MaterialShapedInput
                 callbackError ??= error;
                 return data.EventFlag == ImGuiInputTextFlags.CallbackCharFilter ? 1 : 0;
             }
-        };
-
-        bool changed;
-        ImGui.PushStyleColor(ImGuiCol.Text, Vector4.Zero);
-        ImGui.PushStyleColor(ImGuiCol.TextDisabled, Vector4.Zero);
-        ImGui.PushStyleColor(ImGuiCol.TextSelectedBg, Vector4.Zero);
-        try
-        {
-            changed = ImGui.InputTextWithHint(nativeId, hint, ref nativeValue, maxLength,
-                flags | ImGuiInputTextFlags.CallbackAlways | ImGuiInputTextFlags.CallbackCharFilter, callback);
         }
-        finally
-        {
-            ImGui.PopStyleColor(3);
-            if (!stateBefore.IsNull)
-                stateBefore.ScrollX = scrollBefore;
-        }
-        value = proxy.Decode(nativeValue);
-        if (context.InputTextState.ID == id)
-            activeProxy = proxy;
-        if (callbackError is not null || clipboard.Error is not null)
-            throw new InvalidOperationException("The shaped editor callback failed.", callbackError ?? clipboard.Error);
-
-        frameMin = ImGui.GetItemRectMin();
-        frameMax = ImGui.GetItemRectMax();
-        var active = ImGui.IsItemActive();
-        var drawList = ImGui.GetWindowDrawList();
-        var text = value.Length == 0 ? hint : value;
-        var painted = renderer.GetLayout(text, fontSize);
-        var originAfter = TextOrigin(frameMin, frameMax, padding, painted.Size.Y);
-        var clipMin = new Vector2(frameMin.X + padding.X, frameMin.Y);
-        var clipMax = new Vector2(frameMax.X - padding.X, frameMax.Y);
-        clipMax = Vector2.Max(clipMin, clipMax);
-        var state = ImGuiP.GetInputTextState(id);
-        var scroll = scrollBefore;
-        var caret = Vector2.Zero;
-        var caretHeight = painted.Size.Y;
-        if (active && !state.IsNull)
-        {
-            var layout = renderer.GetLayout(value, fontSize);
-            var cursor = proxy.ToSourcePosition(nativeValue, state.Stb.Cursor);
-            caret = layout.HitTestPosition(cursor);
-            caretHeight = layout.Size.Y;
-            var visibleWidth = Math.Max(1, clipMax.X - clipMin.X);
-            if ((flags & ImGuiInputTextFlags.NoHorizontalScroll) != 0)
-                scroll = 0;
-            else
-            {
-                if (caret.X < scroll)
-                    scroll = Math.Max(0, caret.X - visibleWidth * .25f);
-                else if (caret.X >= scroll + visibleWidth)
-                    scroll = Math.Max(0, caret.X - visibleWidth * .75f);
-                scroll = Math.Clamp(scroll, 0, Math.Max(0, layout.Size.X - visibleWidth));
-            }
-            state.ScrollX = scroll;
-            ref var ime = ref ImGui.GetCurrentContext().PlatformImeData;
-            ime.InputPos = originAfter + caret - new Vector2(scroll, 0);
-            ime.InputLineHeight = caretHeight;
-        }
-        else
-            scroll = 0;
-
-        // Admit leading glyph overhang into the native frame's existing padding.
-        // Keep the padded boundary while scrolling, and retain the original
-        // text origin, visible width, pointer geometry and caret positions.
-        if (scroll == 0)
-            clipMin.X = frameMin.X;
-
-        drawList.PushClipRect(clipMin, clipMax, true);
-        try
-        {
-            if (active && !state.IsNull && state.Stb.SelectStart != state.Stb.SelectEnd)
-            {
-                var layout = renderer.GetLayout(value, fontSize);
-                var start = proxy.ToSourcePosition(nativeValue, Math.Min(state.Stb.SelectStart, state.Stb.SelectEnd));
-                var end = proxy.ToSourcePosition(nativeValue, Math.Max(state.Stb.SelectStart, state.Stb.SelectEnd));
-                foreach (var rectangle in layout.HitTestRange(start, end - start))
-                    drawList.AddRectFilled(originAfter + rectangle.Min - new Vector2(scroll, 0),
-                        originAfter + rectangle.Max - new Vector2(scroll, 0), selectionTint);
-            }
-
-            renderer.Draw(drawList, originAfter - new Vector2(scroll, 0), value.Length == 0 ? hintTint : tint, text, fontSize);
-            if (active && !state.IsNull && (!io.ConfigInputTextCursorBlink || state.CursorAnim <= 0 || state.CursorAnim % 1.2f <= .8f))
-            {
-                var point = originAfter + caret - new Vector2(scroll, 0);
-                drawList.AddLine(point, point + new Vector2(0, caretHeight), tint);
-            }
-        }
-        finally
-        {
-            drawList.PopClipRect();
-        }
-        return changed;
     }
 
 
@@ -243,9 +309,16 @@ public static unsafe class MaterialShapedInput
             && old.Id == id && context.InputTextState.ID == id && old.HasTokens;
         if (!NeedsShaping(value) && !NeedsShaping(caption) && !retained)
             return ImGui.InputTextMultiline(nativeId, ref value, maxLength, size, flags);
+        return MultilineShaped(renderer, nativeId, ref value, maxLength, size, flags, context, parent, id, caption);
+    }
 
+    // Separate from Multiline: its callback's captured state is allocated on entry, so the
+    // native path above stays allocation-free.
+    private static bool MultilineShaped(MaterialTextRenderer renderer, string nativeId, ref string value, int maxLength,
+        Vector2 size, ImGuiInputTextFlags flags, ImGuiContextPtr context, ImGuiWindowPtr parent, uint id, string caption)
+    {
         var proxy = activeProxy is { Multiline: true } existing && existing.Context == (nint)context.Handle
-            && existing.Id == id && context.InputTextState.ID == id ? existing : new EditorProxy((nint)context.Handle, id, true);
+            && existing.Id == id && context.InputTextState.ID == id ? existing : FreshProxy((nint)context.Handle, id, true);
         var before = value;
         var nativeValue = proxy.Encode(before);
         var fontSize = ImGui.GetFontSize();
@@ -279,7 +352,7 @@ public static unsafe class MaterialShapedInput
         var selectionTint = ImGui.GetColorU32(ImGuiCol.TextSelectedBg);
         var follow = false;
         Exception? callbackError = null;
-        using var clipboard = new ClipboardScope(proxy, Math.Max(maxLength, Encoding.UTF8.GetByteCount(before)));
+        using var clipboard = ClipboardScope.Open(proxy, Math.Max(maxLength, Encoding.UTF8.GetByteCount(before)));
 
         ImGui.ImGuiInputTextCallbackDelegate callback = (ref ImGuiInputTextCallbackData data) =>
         {
@@ -631,6 +704,11 @@ public static unsafe class MaterialShapedInput
 
         internal string Encode(string text)
         {
+            // Nothing to map: the encoded text equals the source (common: BMP-only text).
+            var span = text.AsSpan();
+            if (span.IndexOfAnyInRange('\ud800', '\udfff') < 0 && span.IndexOfAnyInRange(FirstToken, LastToken) < 0
+                && !(Multiline && span.Contains('\r')))
+                return text;
             var result = new StringBuilder(text.Length);
             for (var index = 0; index < text.Length; index++)
             {
@@ -658,6 +736,9 @@ public static unsafe class MaterialShapedInput
 
         internal string Decode(string text)
         {
+            // Tokens only exist in the private-use range; without any the text is unchanged.
+            if (toSource.Count == 0 || text.AsSpan().IndexOfAnyInRange(FirstToken, LastToken) < 0)
+                return text;
             var result = new StringBuilder(text.Length);
             foreach (var character in text)
                 if (toSource.TryGetValue(character, out var source))
@@ -670,6 +751,7 @@ public static unsafe class MaterialShapedInput
         internal int ToSourcePosition(string text, int position)
         {
             position = Math.Clamp(position, 0, text.Length);
+            if (toSource.Count == 0) return position;
             var sourcePosition = 0;
             for (var index = 0; index < position; index++)
                 sourcePosition += toSource.TryGetValue(text[index], out var source) ? source.Length : 1;
@@ -680,6 +762,7 @@ public static unsafe class MaterialShapedInput
         {
             if (position <= 0)
                 return 0;
+            if (toSource.Count == 0) return Math.Min(position, text.Length);
             var sourcePosition = 0;
             for (var index = 0; index < text.Length; index++)
             {
@@ -708,21 +791,37 @@ public static unsafe class MaterialShapedInput
 
     private sealed class ClipboardScope : IDisposable
     {
-        private readonly EditorProxy proxy;
-        private readonly nint get;
-        private readonly nint set;
-        private readonly nint savedGet;
-        private readonly nint savedSet;
-        private readonly int maximumBytes;
-        private readonly ClipboardScope? previous;
+        // Scopes are opened every frame a shaped field is drawn; disposed ones are reused.
+        [ThreadStatic] private static Stack<ClipboardScope>? pool;
+        private EditorProxy proxy = null!;
+        private nint get;
+        private nint set;
+        private nint savedGet;
+        private nint savedSet;
+        private int maximumBytes;
+        private ClipboardScope? previous;
         private int pasteAvailable;
         private int pasteAccepted;
         private GCHandle pinned;
+        private bool open;
         internal bool ReadProxy { get; private set; }
         internal Exception? Error { get; private set; }
 
-        internal ClipboardScope(EditorProxy proxy, int maximumBytes)
+        private ClipboardScope() { }
+
+        internal static ClipboardScope Open(EditorProxy proxy, int maximumBytes)
         {
+            var scope = pool is { Count: > 0 } ? pool.Pop() : new ClipboardScope();
+            scope.Begin(proxy, maximumBytes);
+            return scope;
+        }
+
+        private void Begin(EditorProxy proxy, int maximumBytes)
+        {
+            open = true;
+            pasteAvailable = pasteAccepted = 0;
+            ReadProxy = false;
+            Error = null;
             this.proxy = proxy;
             this.maximumBytes = maximumBytes;
             var io = ImGui.GetIO();
@@ -797,12 +896,17 @@ public static unsafe class MaterialShapedInput
 
         public void Dispose()
         {
+            if (!open) return;
+            open = false;
             var io = ImGui.GetIO();
             io.GetClipboardTextFn = (void*)savedGet;
             io.SetClipboardTextFn = (void*)savedSet;
             clipboardScope = previous;
             if (pinned.IsAllocated)
                 pinned.Free();
+            previous = null;
+            proxy = null!;
+            (pool ??= new()).Push(this);
         }
     }
 }

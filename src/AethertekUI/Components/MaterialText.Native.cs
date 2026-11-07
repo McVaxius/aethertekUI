@@ -15,26 +15,39 @@ public static partial class MaterialText
         if (firstVertex < 0 || firstVertex > list.VtxBuffer.Size)
             throw new ArgumentOutOfRangeException(nameof(firstVertex));
         MaterialNativeCaption.HideGlyphs(list, firstVertex, nativeFont,
-            MaterialNativeCaption.Visible(nativeLabel), boundsMin, boundsMax);
+            MaterialNativeCaption.VisibleSpan(nativeLabel), boundsMin, boundsMax);
         list.PushClipRect(boundsMin, boundsMax, true);
         try { AddText(list, textPosition, color, display); }
         finally { list.PopClipRect(); }
     }
 
     /// <summary>Reserves natural shaped line height without changing widths or native IDs.</summary>
-    public static MaterialStyleScope PushLineHeight(params string[] text)
+    public static MaterialStyleScope PushLineHeight(params string[] text) => PushLineHeight((ReadOnlySpan<string>)text);
+
+    /// <inheritdoc cref="PushLineHeight(string[])"/>
+    public static MaterialStyleScope PushLineHeight(params ReadOnlySpan<string> text)
     {
         var scope = new MaterialStyleScope();
         if (MaterialTextRenderer.Current is not null)
-        {
-            var height = text.Where(RequiresShaping).Select(value => Measure(value).Y)
-                .DefaultIfEmpty(ImGui.GetTextLineHeight()).Max();
-            var padding = ImGui.GetStyle().FramePadding;
-            if (height > ImGui.GetTextLineHeight())
-                scope.Style(ImGuiStyleVar.FramePadding,
-                    new Vector2(padding.X, padding.Y + (height - ImGui.GetTextLineHeight()) * .5f));
-        }
+            ApplyLineHeight(ref scope, ShapedLineHeight(text));
         return scope;
+    }
+
+    /// <summary>Tallest shaped caption, or the native line height when none is taller.</summary>
+    internal static float ShapedLineHeight(ReadOnlySpan<string> text)
+    {
+        var height = ImGui.GetTextLineHeight();
+        foreach (var value in text)
+            if (RequiresShaping(value)) height = Math.Max(height, Measure(value).Y);
+        return height;
+    }
+
+    internal static void ApplyLineHeight(ref MaterialStyleScope scope, float height)
+    {
+        var line = ImGui.GetTextLineHeight();
+        if (height <= line) return;
+        var padding = ImGui.GetStyle().FramePadding;
+        scope.Style(ImGuiStyleVar.FramePadding, new Vector2(padding.X, padding.Y + (height - line) * .5f));
     }
 
     public static void TextWrapped(string text)
@@ -75,8 +88,8 @@ public static partial class MaterialText
 
     public static bool CollapsingHeader(string nativeLabel, ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags.None)
     {
+        if (!MaterialNativeCaption.IsShaped(MaterialNativeCaption.VisibleSpan(nativeLabel))) return ImGui.CollapsingHeader(nativeLabel, flags);
         var caption = MaterialNativeCaption.Visible(nativeLabel);
-        if (!MaterialNativeCaption.IsShaped(caption)) return ImGui.CollapsingHeader(nativeLabel, flags);
         using var height = PushLineHeight(caption);
         var origin = ImGui.GetCursorScreenPos();
         var list = ImGui.GetWindowDrawList();
@@ -100,9 +113,10 @@ public static partial class MaterialText
     /// <summary>Retains the supplied native tree label/ID and arrow. The caller owns TreePop when opened.</summary>
     public static bool TreeNode(string nativeLabel, ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags.None, string? display = null)
     {
-        var nativeCaption = MaterialNativeCaption.Visible(nativeLabel);
-        var caption = display ?? nativeCaption;
-        if (!MaterialNativeCaption.IsShaped(caption)) return ImGui.TreeNodeEx(nativeLabel, flags);
+        var nativeCaption = MaterialNativeCaption.VisibleSpan(nativeLabel);
+        if (!(display is null ? MaterialNativeCaption.IsShaped(nativeCaption) : MaterialNativeCaption.IsShaped(display)))
+            return ImGui.TreeNodeEx(nativeLabel, flags);
+        var caption = display ?? MaterialNativeCaption.Visible(nativeLabel);
         var origin = ImGui.GetCursorScreenPos();
         var list = ImGui.GetWindowDrawList();
         var first = list.VtxBuffer.Size;
@@ -144,9 +158,10 @@ public static partial class MaterialText
     /// <summary>Retains native table sorting, header identity and arrows; the owner reserves its row height.</summary>
     public static void TableHeader(string nativeLabel, string? display = null)
     {
-        var nativeCaption = MaterialNativeCaption.Visible(nativeLabel);
-        var caption = display ?? nativeCaption;
-        if (!MaterialNativeCaption.IsShaped(caption)) { ImGui.TableHeader(nativeLabel); return; }
+        var nativeCaption = MaterialNativeCaption.VisibleSpan(nativeLabel);
+        if (!(display is null ? MaterialNativeCaption.IsShaped(nativeCaption) : MaterialNativeCaption.IsShaped(display)))
+        { ImGui.TableHeader(nativeLabel); return; }
+        var caption = display ?? MaterialNativeCaption.Visible(nativeLabel);
         var origin = ImGui.GetCursorScreenPos();
         var list = ImGui.GetWindowDrawList();
         var first = list.VtxBuffer.Size;
@@ -165,13 +180,14 @@ public static partial class MaterialText
     /// <summary>Retains native combo identity and arrow; the caller retains popup ownership.</summary>
     public static bool BeginCombo(string nativeLabel, string preview, ImGuiComboFlags flags = ImGuiComboFlags.None)
     {
-        var caption = MaterialNativeCaption.Visible(nativeLabel);
-        var visiblePreview = MaterialNativeCaption.Visible(preview);
-        var shapedLabel = MaterialNativeCaption.IsShaped(caption);
-        var shapedPreview = (flags & ImGuiComboFlags.NoPreview) == 0 && MaterialNativeCaption.IsShaped(visiblePreview);
+        var shapedLabel = MaterialNativeCaption.IsShaped(MaterialNativeCaption.VisibleSpan(nativeLabel));
+        var shapedPreview = (flags & ImGuiComboFlags.NoPreview) == 0
+            && MaterialNativeCaption.IsShaped(MaterialNativeCaption.VisibleSpan(preview));
         if (!shapedLabel && !shapedPreview)
             return ImGui.BeginCombo(nativeLabel, preview, flags);
-        using var height = PushLineHeight(shapedLabel ? caption : "", shapedPreview ? visiblePreview : "");
+        var caption = shapedLabel ? MaterialNativeCaption.Visible(nativeLabel) : "";
+        var visiblePreview = shapedPreview ? MaterialNativeCaption.Visible(preview) : "";
+        using var height = PushLineHeight(caption, visiblePreview);
         var origin = ImGui.GetCursorScreenPos();
         var window = ImGuiP.GetCurrentWindow();
         var drawList = ImGui.GetWindowDrawList();
@@ -217,9 +233,12 @@ public static partial class MaterialText
     public static bool Selectable(string nativeLabel, bool selected = false,
         ImGuiSelectableFlags flags = ImGuiSelectableFlags.None, Vector2 size = default, string? display = null)
     {
-        display ??= nativeLabel.Split("##", 2)[0];
-        if (!MaterialNativeCaption.IsShaped(display) && display == MaterialNativeCaption.Visible(nativeLabel))
+        // Without a display caption it is the visible native caption, so only shaping can differ.
+        var visible = MaterialNativeCaption.VisibleSpan(nativeLabel);
+        if (display is null ? !MaterialNativeCaption.IsShaped(visible)
+            : !MaterialNativeCaption.IsShaped(display) && visible.SequenceEqual(display))
             return ImGui.Selectable(nativeLabel, selected, flags, size);
+        display ??= MaterialNativeCaption.Visible(nativeLabel);
         var textSize = Measure(display);
         size.Y = Math.Max(size.Y, textSize.Y);
         var origin = ImGui.GetCursorScreenPos();
