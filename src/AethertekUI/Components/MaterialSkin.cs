@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Runtime.Intrinsics;
 using Dalamud.Bindings.ImGui;
 
 namespace AethertekUI;
@@ -129,19 +130,22 @@ public static partial class MaterialSkin
         var wave1 = Rgb(settings?.GlassWave1Rgb ?? MaterialColorSettings.DefaultGlassWave1Rgb);
         var wave2 = Rgb(settings?.GlassWave2Rgb ?? MaterialColorSettings.DefaultGlassWave2Rgb);
         var wave3 = Rgb(settings?.GlassWave3Rgb ?? MaterialColorSettings.DefaultGlassWave3Rgb);
-        var time = theme.Motion.Enabled && settings?.GlassAnimation != false
-            ? (float)ImGui.GetTime() * .65f * (settings?.GlassAnimationSpeed ?? 1) : 0;
+        var animated = theme.Motion.Enabled && settings?.GlassAnimation != false;
+        var time = animated ? (float)ImGui.GetTime() * .65f * (settings?.GlassAnimationSpeed ?? 1) : 0;
         var scale = MaterialTheme.Metrics.Scale;
-        // Bilinear corner colours form curved ribbons. The grid is bounded at 22,528 vertices.
+        // Bilinear corner colours form curved ribbons. The grid is bounded at 89 x 65 vertices.
         var columns = Math.Clamp((int)MathF.Ceiling(size.X / (12 * scale)), 48, 88);
         var rows = Math.Clamp((int)MathF.Ceiling(size.Y / (12 * scale)), 32, 64);
-        Span<uint> previous = stackalloc uint[89];
-        Span<uint> current = stackalloc uint[89];
-        Span<float> previousX = stackalloc float[89];
-        Span<float> currentX = stackalloc float[89];
+        var grid = GlassGrid.Shared;
+        // Still backgrounds repeat their colours every frame; only the positions follow the window.
+        var key = new GlassGrid.Key(null, c.Background, c.OnSurface, wave1, wave2, wave3, size, radius, roundTop, alpha, glass, columns, rows);
+        var colors = animated ? null : grid.Find(key);
+        var fill = colors == null;
+        colors ??= animated ? grid.Colors : grid.Store(key);
+        var stride = columns + 1;
         var topRows = radius > 0 && roundTop ? 4 : 0;
         var bottomRows = radius > 0 ? 4 : 0;
-        var previousY = min.Y;
+        var columnInset = float.NaN;
         for (var row = 0; row <= rows; row++)
         {
             var y = topRows > 0 && row <= topRows ? radius * row / topRows
@@ -151,46 +155,53 @@ public static partial class MaterialSkin
             var v = y / size.Y;
             var cornerY = topRows > 0 && y < radius ? radius - y : y > size.Y - radius ? y - size.Y + radius : 0;
             var inset = radius - MathF.Sqrt(Math.Max(0, radius * radius - cornerY * cornerY));
-            var primaryCenter = .22f + .38f * v + .11f * MathF.Sin(v * 5 - time * .9f);
-            var secondaryCenter = .84f - .38f * v + .13f * MathF.Sin(v * 5.2f + time * .72f + .8f);
-            for (var column = 0; column <= columns; column++)
+            // Columns depend on the row only through the corner inset, which is 0 away from the corners.
+            if (!inset.Equals(columnInset))
             {
-                currentX[column] = min.X + inset + (size.X - 2 * inset) * column / columns;
-                var u = (currentX[column] - min.X) / size.X;
-                var crossing = .80f - .68f * u + .14f * MathF.Sin(u * 5.3f - time * .83f + .7f);
-                var d1 = u - primaryCenter;
-                var d2 = u - secondaryCenter;
-                var d3 = v - crossing;
-                var band1 = MathF.Exp(-d1 * d1 * 45);
-                var band2 = MathF.Exp(-d2 * d2 * 55);
-                var band3 = MathF.Exp(-d3 * d3 * 65);
-                var color = Vector4.Lerp(c.Background, wave2, .14f + .07f * u + .04f * v);
-                color = Vector4.Lerp(color, wave1, band1 * .58f);
-                color = Vector4.Lerp(color, wave2, band2 * .50f);
-                color = Vector4.Lerp(color, wave3, band3 * .50f);
-                var crest = MathF.Max(band1, MathF.Max(band2, band3));
-                var opacity = glass ? crest * .58f : 1;
-                crest *= crest; crest *= crest; crest *= crest;
-                color = Vector4.Lerp(color, c.OnSurface, crest * .10f);
-                color.W = opacity;
-                current[column] = Ink(color, alpha);
-            }
-            if (row > 0)
-            {
-                for (var column = 0; column < columns; column++)
+                columnInset = inset;
+                for (var column = 0; column <= columns; column++)
                 {
-                    var first = dl.VtxBuffer.Size;
-                    dl.AddRectFilledMultiColor(new(previousX[column], previousY), new(currentX[column + 1], min.Y + y),
-                        previous[column], previous[column + 1], current[column + 1], current[column]);
-                    if (dl.VtxBuffer.Size - first != 4) continue; // Fully transparent backgrounds emit no cell.
-                    var topRight = dl.VtxBuffer[first + 1]; topRight.Pos.X = previousX[column + 1]; dl.VtxBuffer[first + 1] = topRight;
-                    var bottomLeft = dl.VtxBuffer[first + 3]; bottomLeft.Pos.X = currentX[column]; dl.VtxBuffer[first + 3] = bottomLeft;
+                    var x = min.X + inset + (size.X - 2 * inset) * column / columns;
+                    var u = (x - min.X) / size.X;
+                    grid.ColumnX[column] = x;
+                    grid.ColumnU[column] = u;
+                    if (fill) grid.ColumnTerm[column] = .80f - .68f * u + .14f * MathF.Sin(u * 5.3f - time * .83f + .7f);
                 }
             }
-            var swap = previous; previous = current; current = swap;
-            var swapX = previousX; previousX = currentX; currentX = swapX;
-            previousY = min.Y + y;
+            grid.Y[row] = min.Y + y;
+            var offset = row * stride;
+            grid.ColumnX.AsSpan(0, stride).CopyTo(grid.X.AsSpan(offset, stride));
+            if (!fill) continue;
+            var primaryCenter = Vector128.Create(.22f + .38f * v + .11f * MathF.Sin(v * 5 - time * .9f));
+            var secondaryCenter = Vector128.Create(.84f - .38f * v + .13f * MathF.Sin(v * 5.2f + time * .72f + .8f));
+            var rowV = Vector128.Create(v);
+            var shade = Vector128.Create(.14f + .04f * v);
+            var background = c.Background;
+            var ink = c.OnSurface;
+            // Four columns at a time; the column arrays are padded past the last column.
+            for (var column = 0; column < stride; column += 4)
+            {
+                var u = Vector128.Create(grid.ColumnU.AsSpan(column, 4));
+                var d1 = u - primaryCenter;
+                var d2 = u - secondaryCenter;
+                var d3 = rowV - Vector128.Create(grid.ColumnTerm.AsSpan(column, 4));
+                var band1 = Vector128.Exp(d1 * d1 * -45f);
+                var band2 = Vector128.Exp(d2 * d2 * -55f);
+                var band3 = Vector128.Exp(d3 * d3 * -65f);
+                var mix = shade + u * .07f;
+                var crest = Vector128.Max(band1, Vector128.Max(band2, band3));
+                var opacity = glass ? crest * (.58f * alpha) : Vector128.Create(alpha);
+                crest *= crest; crest *= crest; crest *= crest;
+                band1 *= .58f; band2 *= .50f; band3 *= .50f; crest *= .10f;
+                GlassGrid.Pack(
+                    GlassGrid.Ribbon(background.X, wave1.X, wave2.X, wave3.X, ink.X, mix, band1, band2, band3, crest),
+                    GlassGrid.Ribbon(background.Y, wave1.Y, wave2.Y, wave3.Y, ink.Y, mix, band1, band2, band3, crest),
+                    GlassGrid.Ribbon(background.Z, wave1.Z, wave2.Z, wave3.Z, ink.Z, mix, band1, band2, band3, crest),
+                    opacity).CopyTo(grid.RowColors, column);
+            }
+            grid.RowColors.AsSpan(0, stride).CopyTo(colors.AsSpan(offset, stride));
         }
+        grid.Emit(dl, colors, columns, rows);
     }
 
     private static void GlassLights(ImDrawListPtr dl, Vector2 min, Vector2 max, MaterialTheme theme, float alpha,
@@ -211,16 +222,23 @@ public static partial class MaterialSkin
         var scale = MaterialTheme.Metrics.Scale;
         var columns = Math.Clamp((int)MathF.Ceiling(size.X / (16 * scale)), 32, 64);
         var rows = Math.Clamp((int)MathF.Ceiling(size.Y / (16 * scale)), 24, 48);
-        Span<uint> previous = stackalloc uint[65];
-        Span<uint> current = stackalloc uint[65];
-        Span<float> previousX = stackalloc float[65];
-        Span<float> currentX = stackalloc float[65];
+        var grid = GlassGrid.Shared;
+        var key = new GlassGrid.Key(effect, theme.Colors.Background, default, first, second, third, size, radius, roundTop, alpha, glass, columns, rows);
+        var colors = animated ? null : grid.Find(key);
+        var fill = colors == null;
+        colors ??= animated ? grid.Colors : grid.Store(key);
         var center1 = new Vector2(.28f + .17f * MathF.Sin(time * .61f), .33f + .20f * MathF.Cos(time * .47f));
         var center2 = new Vector2(.73f + .14f * MathF.Cos(time * .53f), .62f + .19f * MathF.Sin(time * .43f));
         var center3 = new Vector2(.50f + .22f * MathF.Sin(time * .37f + 1), .72f + .14f * MathF.Cos(time * .57f));
+        var beam1 = .25f * MathF.Sin(time * .6f);
+        var beam2 = .22f * MathF.Cos(time * .51f);
+        var beam3 = .25f * MathF.Sin(time * .43f + 1);
+        var pointer2 = pointer + new Vector2(.15f, -.10f);
+        var pointer3 = pointer + new Vector2(-.12f, .13f);
+        var stride = columns + 1;
         var topRows = radius > 0 && roundTop ? 4 : 0;
         var bottomRows = radius > 0 ? 4 : 0;
-        var previousY = min.Y;
+        var columnInset = float.NaN;
         for (var row = 0; row <= rows; row++)
         {
             var y = topRows > 0 && row <= topRows ? radius * row / topRows
@@ -230,55 +248,194 @@ public static partial class MaterialSkin
             var v = y / size.Y;
             var cornerY = topRows > 0 && y < radius ? radius - y : y > size.Y - radius ? y - size.Y + radius : 0;
             var inset = radius - MathF.Sqrt(Math.Max(0, radius * radius - cornerY * cornerY));
-            for (var column = 0; column <= columns; column++)
+            if (!inset.Equals(columnInset))
             {
-                currentX[column] = min.X + inset + (size.X - 2 * inset) * column / columns;
-                var point = new Vector2((currentX[column] - min.X) / size.X, v);
-                float a, b, c;
+                columnInset = inset;
+                for (var column = 0; column <= columns; column++)
+                {
+                    var x = min.X + inset + (size.X - 2 * inset) * column / columns;
+                    grid.ColumnX[column] = x;
+                    grid.ColumnU[column] = (x - min.X) / size.X;
+                }
+            }
+            grid.Y[row] = min.Y + y;
+            var offset = row * stride;
+            grid.ColumnX.AsSpan(0, stride).CopyTo(grid.X.AsSpan(offset, stride));
+            if (!fill) continue;
+            var background = theme.Colors.Background;
+            for (var column = 0; column < stride; column += 4)
+            {
+                var x = Vector128.Create(grid.ColumnU.AsSpan(column, 4));
+                Vector128<float> a, b, c;
                 if (effect == MaterialGlassLights.SweepingBeams)
                 {
-                    a = Band(point.X - .32f * point.Y - .23f - .25f * MathF.Sin(time * .6f), 100);
-                    b = Band(point.X + .41f * point.Y - .88f - .22f * MathF.Cos(time * .51f), 85);
-                    c = Band(point.Y - .21f * point.X - .55f - .25f * MathF.Sin(time * .43f + 1), 110);
+                    a = GlassGrid.Band(x - Vector128.Create(.32f * v + .23f + beam1), 100);
+                    b = GlassGrid.Band(x + Vector128.Create(.41f * v - .88f - beam2), 85);
+                    c = GlassGrid.Band(Vector128.Create(v - .55f - beam3) - x * .21f, 110);
                 }
                 else if (effect == MaterialGlassLights.PointerGlow)
                 {
-                    a = Glow(point, pointer, 13);
-                    b = Glow(point, pointer + new Vector2(.15f, -.10f), 18) * .65f;
-                    c = Glow(point, pointer + new Vector2(-.12f, .13f), 18) * .55f;
+                    a = GlassGrid.Glow(x, v, pointer, 13);
+                    b = GlassGrid.Glow(x, v, pointer2, 18) * .65f;
+                    c = GlassGrid.Glow(x, v, pointer3, 18) * .55f;
                 }
                 else
                 {
-                    a = Glow(point, center1, 9);
-                    b = Glow(point, center2, 8);
-                    c = Glow(point, center3, 11);
+                    a = GlassGrid.Glow(x, v, center1, 9);
+                    b = GlassGrid.Glow(x, v, center2, 8);
+                    c = GlassGrid.Glow(x, v, center3, 11);
                 }
-                var strength = MathF.Max(a, MathF.Max(b, c));
-                var color = theme.Colors.Background;
-                color = Vector4.Lerp(color, first, a * .68f);
-                color = Vector4.Lerp(color, second, b * .60f);
-                color = Vector4.Lerp(color, third, c * .56f);
-                color.W = glass ? strength * .55f : 1;
-                current[column] = Ink(color, alpha);
+                var opacity = glass ? Vector128.Max(a, Vector128.Max(b, c)) * (.55f * alpha) : Vector128.Create(alpha);
+                a *= .68f; b *= .60f; c *= .56f;
+                GlassGrid.Pack(
+                    GlassGrid.Light(background.X, first.X, second.X, third.X, a, b, c),
+                    GlassGrid.Light(background.Y, first.Y, second.Y, third.Y, a, b, c),
+                    GlassGrid.Light(background.Z, first.Z, second.Z, third.Z, a, b, c),
+                    opacity).CopyTo(grid.RowColors, column);
             }
-            if (row > 0)
-                for (var column = 0; column < columns; column++)
-                {
-                    var firstVertex = dl.VtxBuffer.Size;
-                    dl.AddRectFilledMultiColor(new(previousX[column], previousY), new(currentX[column + 1], min.Y + y),
-                        previous[column], previous[column + 1], current[column + 1], current[column]);
-                    if (dl.VtxBuffer.Size - firstVertex != 4) continue;
-                    var topRight = dl.VtxBuffer[firstVertex + 1]; topRight.Pos.X = previousX[column + 1]; dl.VtxBuffer[firstVertex + 1] = topRight;
-                    var bottomLeft = dl.VtxBuffer[firstVertex + 3]; bottomLeft.Pos.X = currentX[column]; dl.VtxBuffer[firstVertex + 3] = bottomLeft;
-                }
-            var swap = previous; previous = current; current = swap;
-            var swapX = previousX; previousX = currentX; currentX = swapX;
-            previousY = min.Y + y;
+            grid.RowColors.AsSpan(0, stride).CopyTo(colors.AsSpan(offset, stride));
         }
+        grid.Emit(dl, colors, columns, rows);
     }
 
-    private static float Band(float distance, float falloff) => MathF.Exp(-distance * distance * falloff);
-    private static float Glow(Vector2 point, Vector2 center, float falloff) => MathF.Exp(-Vector2.DistanceSquared(point, center) * falloff);
+    /// <summary>
+    /// Glass background grids, written straight into the draw list. Neighbouring cells share
+    /// their corner vertices; the triangles and their order match one AddRectFilledMultiColor
+    /// per cell, and fully transparent cells are skipped the same way. Colours are computed
+    /// four vertices at a time with vector Exp, within a step of the scalar formulas.
+    /// </summary>
+    private sealed class GlassGrid
+    {
+        private const int MaxColumns = 88, MaxRows = 64, MaxVertices = (MaxColumns + 1) * (MaxRows + 1);
+        private const int CacheCapacity = 8;
+        [ThreadStatic] private static GlassGrid? shared;
+        public static GlassGrid Shared => shared ??= new();
+
+        // Column data is read four at a time, so it is padded to a multiple of four.
+        private const int PaddedColumns = (MaxColumns + 1 + 3) / 4 * 4;
+        public readonly float[] ColumnX = new float[MaxColumns + 1];
+        public readonly float[] ColumnU = new float[PaddedColumns];
+        public readonly float[] ColumnTerm = new float[PaddedColumns];
+        public readonly uint[] RowColors = new uint[PaddedColumns];
+        public readonly float[] X = new float[MaxVertices];
+        public readonly float[] Y = new float[MaxRows + 1];
+        public readonly uint[] Colors = new uint[MaxVertices];
+        private readonly Key[] keys = new Key[CacheCapacity];
+        private readonly uint[]?[] cached = new uint[CacheCapacity][];
+        private readonly long[] used = new long[CacheCapacity];
+        private long clock;
+
+        /// <summary>
+        /// Everything a still background's colours depend on, by value, so consumers that build
+        /// a new theme every frame still hit the cache. The window position is not part of it.
+        /// </summary>
+        public readonly record struct Key(MaterialGlassLights? Lights, Vector4 Background, Vector4 Ink, Vector4 First,
+            Vector4 Second, Vector4 Third, Vector2 Size, float Radius, bool RoundTop, float Alpha, bool Glass, int Columns, int Rows);
+
+        public uint[]? Find(in Key key)
+        {
+            for (var i = 0; i < CacheCapacity; i++)
+                if (cached[i] != null && keys[i] == key)
+                {
+                    used[i] = ++clock;
+                    return cached[i];
+                }
+            return null;
+        }
+
+        /// <summary>A slot for new colours under this key, replacing the least recently used one.</summary>
+        public uint[] Store(in Key key)
+        {
+            var slot = 0;
+            for (var i = 1; i < CacheCapacity; i++)
+                if (used[i] < used[slot]) slot = i;
+            keys[slot] = key;
+            used[slot] = ++clock;
+            return cached[slot] ??= new uint[MaxVertices];
+        }
+
+        // One colour channel of the waves for four vertices: base shade, three ribbons, crest highlight.
+        public static Vector128<float> Ribbon(float background, float wave1, float wave2, float wave3, float ink,
+            Vector128<float> mix, Vector128<float> band1, Vector128<float> band2, Vector128<float> band3, Vector128<float> crest)
+        {
+            var value = Vector128.Create(background) + Vector128.Create(wave2 - background) * mix;
+            value += (Vector128.Create(wave1) - value) * band1;
+            value += (Vector128.Create(wave2) - value) * band2;
+            value += (Vector128.Create(wave3) - value) * band3;
+            return value + (Vector128.Create(ink) - value) * crest;
+        }
+
+        // One colour channel of the lights for four vertices.
+        public static Vector128<float> Light(float background, float first, float second, float third,
+            Vector128<float> a, Vector128<float> b, Vector128<float> c)
+        {
+            var value = Vector128.Create(background) + Vector128.Create(first - background) * a;
+            value += (Vector128.Create(second) - value) * b;
+            return value + (Vector128.Create(third) - value) * c;
+        }
+
+        public static Vector128<float> Band(Vector128<float> distance, float falloff) => Vector128.Exp(distance * distance * -falloff);
+
+        public static Vector128<float> Glow(Vector128<float> x, float y, Vector2 center, float falloff)
+        {
+            var dx = x - Vector128.Create(center.X);
+            var dy = y - center.Y;
+            return Vector128.Exp((dx * dx + Vector128.Create(dy * dy)) * -falloff);
+        }
+
+        // ImGui's colour packing (saturate, scale, round) for four vertices.
+        public static Vector128<uint> Pack(Vector128<float> r, Vector128<float> g, Vector128<float> b, Vector128<float> a)
+            => (Byte(r) | Byte(g) << 8 | Byte(b) << 16 | Byte(a) << 24).AsUInt32();
+
+        private static Vector128<int> Byte(Vector128<float> value)
+            => Vector128.ConvertToInt32(Vector128.Min(Vector128.Max(value, Vector128<float>.Zero), Vector128<float>.One) * 255f + Vector128.Create(.5f));
+
+        public unsafe void Emit(ImDrawListPtr dl, uint[] colors, int columns, int rows)
+        {
+            var stride = columns + 1;
+            var cells = 0;
+            for (var row = 1; row <= rows; row++)
+                for (var column = 0; column < columns; column++)
+                    if (Visible(colors, (row - 1) * stride + column, stride)) cells++;
+            if (cells == 0) return;
+            var vertices = stride * (rows + 1);
+            dl.PrimReserve(cells * 6, vertices);
+            var list = dl.Handle;
+            var uv = list->Data->TexUvWhitePixel;
+            var vertex = list->VtxWritePtr;
+            for (var row = 0; row <= rows; row++)
+            {
+                var y = Y[row];
+                for (int column = 0, i = row * stride; column <= columns; column++, i++)
+                    vertex[i] = new ImDrawVert { Pos = new(X[i], y), Uv = uv, Col = colors[i] };
+            }
+            var index = list->IdxWritePtr;
+            var start = list->VtxCurrentIdx;
+            for (var row = 1; row <= rows; row++)
+                for (var column = 0; column < columns; column++)
+                {
+                    var top = (row - 1) * stride + column;
+                    if (!Visible(colors, top, stride)) continue;
+                    var topLeft = (ushort)(start + top);
+                    var bottomLeft = (ushort)(start + top + stride);
+                    index[0] = topLeft;
+                    index[1] = (ushort)(topLeft + 1);
+                    index[2] = (ushort)(bottomLeft + 1);
+                    index[3] = topLeft;
+                    index[4] = (ushort)(bottomLeft + 1);
+                    index[5] = bottomLeft;
+                    index += 6;
+                }
+            list->VtxWritePtr = vertex + vertices;
+            list->IdxWritePtr = index;
+            list->VtxCurrentIdx = start + (uint)vertices;
+        }
+
+        // ImGui skips a multicolour rectangle whose four corners are all fully transparent.
+        private static bool Visible(uint[] colors, int top, int stride)
+            => ((colors[top] | colors[top + 1] | colors[top + stride] | colors[top + stride + 1]) & 0xFF000000) != 0;
+    }
+
 
     /// <summary>Paint behind existing content. LCARS owners reserve the rail band outside their controls.</summary>
     public static void PanelFrame(Vector2 min, Vector2 max, int accent = 0, bool inset = false)
