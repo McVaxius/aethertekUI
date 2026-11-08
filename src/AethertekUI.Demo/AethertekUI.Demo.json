@@ -2,7 +2,7 @@
   "Author": "CombatReborn",
   "Name": "AethertekUI Showcase",
   "InternalName": "AethertekUI.Demo",
-  "AssemblyVersion": "0.3.0.0",
+  "AssemblyVersion": "0.3.1.0",
   "Description": "AethertekUI Showcase with interactive mock data.",
   "Punchline": "Compact Material controls and dense data.",
   "ApplicableVersion": "any",

@@ -11,7 +11,7 @@ try {
     }
     $dependencies = Get-Content (Join-Path $output 'ConsumerContract.deps.json') -Raw | ConvertFrom-Json
     foreach ($name in @('AethertekUI','AethertekUI.Dalamud')) {
-        if (-not $dependencies.libraries.PSObject.Properties["$name/0.3.0"]) { throw "Consumer dependency missing: $name/0.3.0" }
+        if (-not $dependencies.libraries.PSObject.Properties["$name/0.3.1"]) { throw "Consumer dependency missing: $name/0.3.1" }
     }
     foreach ($name in @('Dalamud.dll','Dalamud.Bindings.ImGui.dll','cimgui.dll')) {
         if (Test-Path -LiteralPath (Join-Path $output $name)) { throw "Host-owned assembly copied into consumer: $name" }

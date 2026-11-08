@@ -1,8 +1,8 @@
 # AethertekUI
 
-A local, private C# immediate-mode UI library for FFXIV-related applications:
+A C# immediate-mode UI library for FFXIV-related applications:
 MD3-inspired dark surfaces, compact desktop controls, cached OKLCH seed-derived
-themes, scoped styles and native ImGui interaction. Version remains **0.3.0**.
+themes, scoped styles and native ImGui interaction. Version **0.3.1**.
 The core targets .NET 10 / Windows x64 and uses Dalamud.Bindings.ImGui; the
 optional adapter integrates with Dalamud API 15 hosts.
 
@@ -66,7 +66,7 @@ pilot; other consumers require their selected adoption and host acceptance.
 owner's default-muted `MaterialUiSoundPlayer`. Its original short PCM tones use
 an owned Windows waveOut handle, with no external assets or dependencies.
 Settings and titlebar mute share the consumer's existing configuration/save path.
-Library version remains 0.3.0. See the [usage skill](skills/aethertek-ui/SKILL.md)
+Library version is 0.3.1. See the [usage skill](skills/aethertek-ui/SKILL.md)
 for lifecycle details.
 
 The 2026-10-23 FrenRider follow-up aligns LCARS native controls with the artwork:
@@ -296,6 +296,8 @@ for later selected plugin integrations. See [known limitations](docs/KNOWN_LIMIT
 and the [smoke-test guide](docs/PROTOTYPE_SMOKE_TEST.md).
 
 ## Evolution and provenance
+
+2026-11-08 - 0.3.1: integrate the reviewed text/control allocation changes and shared glass vertex grid. Waves and Lights reuse the bounded emitter; the FrenRider pilot retains its custom sampling and appearance. Offline validation remains separate from game/GPU acceptance. Further existing-consumer updates are in progress.
 
 2026-10-30: promote the user-approved FrenRider Glasswork implementation into the optional adapter, with a host-independent scoped Background contract in core. Add Waves/Lights/Image settings, native-picker integration, structural-background coverage and default-off screenshot pause; retain foreground rendering, native scopes and legacy editor behavior. Update the showcase and both usage skills. Library version remains 0.3.0; consumer publication is separate.
 

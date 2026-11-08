@@ -53,7 +53,7 @@ public static class MaterialCombo
         var origin=ImGui.GetCursorScreenPos();
         var dl=ImGui.GetWindowDrawList();
         var preview=options.LabelFor(value,emptyLabel);
-        var shapedPreview=MaterialNativeCaption.IsShaped(MaterialNativeCaption.Visible(preview));
+        var shapedPreview=MaterialNativeCaption.IsShaped(MaterialNativeCaption.VisibleSpan(preview));
         var previewSize=MaterialText.Measure(preview);
         var previewFont=ImGui.GetFont();var previewFontSize=ImGui.GetFontSize();
         var fieldHeight=MaterialControls.Metrics.Height+(shapedPreview?Math.Max(0,previewSize.Y-ImGui.GetTextLineHeight()):0);
@@ -153,9 +153,24 @@ public static class MaterialCombo
 internal static class MaterialNativeCaption
 {
     internal static bool IsShaped(string text) => MaterialTextRenderer.Current is not null && MaterialText.RequiresShaping(text);
-    internal static string Visible(string label) => label.IndexOf("##",StringComparison.Ordinal) is var end && end>=0?label[..end]:label;
+    internal static bool IsShaped(ReadOnlySpan<char> text) => MaterialTextRenderer.Current is not null && MaterialText.RequiresShaping(text);
+    [ThreadStatic] private static Dictionary<string,string>? visibleCaptions;
+    /// <summary>The caption before "##". Labels repeat every frame, so cut captions are kept instead of re-cut.</summary>
+    internal static string Visible(string label)
+    {
+        var end=label.IndexOf("##",StringComparison.Ordinal);
+        if(end<0) return label;
+        visibleCaptions??=new(StringComparer.Ordinal);
+        if(visibleCaptions.TryGetValue(label,out var caption)) return caption;
+        if(visibleCaptions.Count>=1024) visibleCaptions.Clear();
+        caption=label[..end];
+        visibleCaptions.Add(label,caption);
+        return caption;
+    }
+    /// <summary>Visible without allocating; materialize with Visible only where shaped text is drawn.</summary>
+    internal static ReadOnlySpan<char> VisibleSpan(string label) => label.IndexOf("##",StringComparison.Ordinal) is var end && end>=0?label.AsSpan(0,end):label;
 
-    internal static unsafe void HideGlyphs(ImDrawListPtr list,int first,ImFontPtr font,string caption,Vector2 min,Vector2 max)
+    internal static unsafe void HideGlyphs(ImDrawListPtr list,int first,ImFontPtr font,ReadOnlySpan<char> caption,Vector2 min,Vector2 max)
     {
         for(var index=first;index+3<list.VtxBuffer.Size;index++)
         {

@@ -127,6 +127,7 @@ public sealed class MaterialSkinNativeTests
         var reducedMotion = false;
         var size = new Vector2(900, 650);
         uint[] colors = [];
+        var indices = 0;
         void Draw()
         {
             var theme = new MaterialTheme(Vector3.UnitY, settings) { SurfaceOpacity = 1 };
@@ -135,8 +136,9 @@ public sealed class MaterialSkinNativeTests
             using var background = MaterialSkin.PushBackgroundRenderer(renderer, true, .75f);
             ImGui.SetNextWindowPos(Vector2.Zero); ImGui.SetNextWindowSize(size);
             using (MaterialSkin.BackdropStyle()) ImGui.Begin("Shared lights", ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoTitleBar);
-            var list = ImGui.GetWindowDrawList(); var first = list.VtxBuffer.Size;
+            var list = ImGui.GetWindowDrawList(); var first = list.VtxBuffer.Size; var firstIndex = list.IdxBuffer.Size;
             MaterialSkin.Backdrop();
+            indices = list.IdxBuffer.Size - firstIndex;
             colors = new uint[list.VtxBuffer.Size - first];
             for (var i = 0; i < colors.Length; i++) colors[i] = list.VtxBuffer[first + i].Col;
             ImGui.End();
@@ -145,7 +147,7 @@ public sealed class MaterialSkinNativeTests
         var still = colors;
         ImGui.GetIO().AddMousePosEvent(100, 140); host.Frame(Draw);
         Assert.Equal(still, colors);
-        Assert.InRange(colors.Length, 3072, 12288);
+        Assert.InRange(colors.Length, 33 * 25, 65 * 49);
         Assert.All(colors, color => Assert.Equal(255u, color >> 24));
         for (var light = 1; light <= 3; light++)
         {
@@ -169,12 +171,23 @@ public sealed class MaterialSkinNativeTests
         Assert.All(colors, color => Assert.InRange(color >> 24, 0u, 141u));
         renderer.Ready = false;
         size = new(8000, 5000); host.Frame(Draw);
-        Assert.Equal(12288, colors.Length);
+        Assert.Equal(65 * 49, colors.Length); // Neighbouring cells share their corner vertices.
+        Assert.Equal(64 * 48 * 6, indices); // Every opaque cell draws two triangles.
         Assert.All(colors, color => Assert.Equal(255u, color >> 24));
         AssertMeshIndices();
         renderer.Ready = true;
         host.Frame(Draw);
-        Assert.InRange(colors.Length, 1, 12288); // Fully transparent glass cells emit no geometry.
+        Assert.Equal(65 * 49, colors.Length);
+        // Fully transparent glass cells emit no triangles. The shared grid is row-major, 65 vertices a row.
+        var visibleCells = 0;
+        for (var row = 0; row < 48; row++)
+            for (var column = 0; column < 64; column++)
+            {
+                var top = row * 65 + column;
+                if (((colors[top] | colors[top + 1] | colors[top + 65] | colors[top + 66]) >> 24) != 0) visibleCells++;
+            }
+        Assert.InRange(visibleCells, 1, 64 * 48);
+        Assert.Equal(visibleCells * 6, indices);
         Assert.All(colors, color => Assert.InRange(color >> 24, 0u, 141u));
         AssertMeshIndices();
     }
@@ -260,29 +273,45 @@ public sealed class MaterialSkinNativeTests
         var selected = new MaterialColorSettings { Mode = MaterialColorMode.Glassmorphism, GlassAnimation = false };
         var reducedMotion = false;
         var windowSize = new Vector2(900, 650);
+        var windowPosition = Vector2.Zero;
         uint[] colors = [];
-        int vertices = 0;
+        Vector2[] positions = [];
+        int vertices = 0, indices = 0;
         void Draw()
         {
             var theme = new MaterialTheme(new Vector3(.3f, .7f, .4f), selected);
             theme.Motion.Enabled = !reducedMotion;
             using var scope = MaterialTheme.Push(theme);
-            ImGui.SetNextWindowPos(new(0, 0)); ImGui.SetNextWindowSize(windowSize);
+            ImGui.SetNextWindowPos(windowPosition); ImGui.SetNextWindowSize(windowSize);
             using (MaterialSkin.BackdropStyle()) ImGui.Begin("Glass ribbons", ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoTitleBar);
             var list = ImGui.GetWindowDrawList();
             var first = list.VtxBuffer.Size;
+            var firstIndex = list.IdxBuffer.Size;
             MaterialSkin.Backdrop();
             vertices = list.VtxBuffer.Size - first;
+            indices = list.IdxBuffer.Size - firstIndex;
             colors = new uint[vertices];
-            for (var i = 0; i < vertices; i++) colors[i] = list.VtxBuffer[first + i].Col;
+            positions = new Vector2[vertices];
+            for (var i = 0; i < vertices; i++) (colors[i], positions[i]) = (list.VtxBuffer[first + i].Col, list.VtxBuffer[first + i].Pos);
             ImGui.End();
         }
         host.Frame(Draw); host.Frame(Draw);
         var still = colors;
         host.Frame(Draw);
         Assert.Equal(still, colors);
-        Assert.InRange(vertices, 6144, 22528);
+        Assert.InRange(vertices, 49 * 33, 89 * 65);
         Assert.True(colors.Distinct().Count() > 1500); // Smooth corner interpolation rather than solid circles.
+        // A still background keeps its colours while the window moves; its vertices follow the window.
+        var resting = positions;
+        windowPosition = new(37, 21);
+        host.Frame(Draw);
+        Assert.Equal(still, colors);
+        Assert.All(positions.Zip(resting), pair =>
+            Assert.True(Vector2.Distance(pair.First, pair.Second + windowPosition) < .01f));
+        windowPosition = Vector2.Zero;
+        host.Frame(Draw);
+        Assert.Equal(still, colors);
+        Assert.Equal(resting, positions);
         foreach (var wave in new[] { 1, 2, 3 })
         {
             selected = wave switch
@@ -313,7 +342,8 @@ public sealed class MaterialSkinNativeTests
         Assert.Equal(still, colors);
         windowSize = new(8000, 5000);
         host.Frame(Draw);
-        Assert.Equal(22528, vertices);
+        Assert.Equal(89 * 65, vertices); // Neighbouring cells share their corner vertices.
+        Assert.Equal(88 * 64 * 6, indices); // Every opaque cell draws two triangles.
         AssertMeshIndices();
     }
 

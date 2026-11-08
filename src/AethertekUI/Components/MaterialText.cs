@@ -127,11 +127,15 @@ public sealed unsafe class MaterialTextRenderer : IDisposable
             // Never dispose textures already referenced by this frame's draw lists.
             while (entries.Count >= 256)
             {
-                var oldest = entries.Where(pair => pair.Value.LastFrame != frame)
-                    .OrderBy(pair => pair.Value.LastFrame).FirstOrDefault();
-                if (oldest.Value is null) break;
-                entries.Remove(oldest.Key);
-                oldest.Value.Dispose();
+                // Oldest entry not used this frame; ties keep the first in enumeration order.
+                Key oldestKey = default;
+                Entry? oldest = null;
+                foreach (var (candidateKey, candidate) in entries)
+                    if (candidate.LastFrame != frame && (oldest is null || candidate.LastFrame < oldest.LastFrame))
+                    { oldestKey = candidateKey; oldest = candidate; }
+                if (oldest is null) break;
+                entries.Remove(oldestKey);
+                oldest.Dispose();
             }
             entry = new(new MaterialTextLayout(text, fontSize,
                 wrapWidth == 0 ? float.PositiveInfinity : wrapWidth, FontFamily, Locale));
@@ -165,7 +169,15 @@ public sealed unsafe class MaterialTextRenderer : IDisposable
         disposed = true;
     }
 
-    private readonly record struct Key(string Text, float Size, float Width);
+    private readonly struct Key(string text, float size, float width) : IEquatable<Key>
+    {
+        private readonly string text = text;
+        private readonly float size = size, width = width;
+        public bool Equals(Key other) => size.Equals(other.size) && width.Equals(other.width)
+            && string.Equals(text, other.text, StringComparison.Ordinal);
+        public override bool Equals(object? obj) => obj is Key other && Equals(other);
+        public override int GetHashCode() => HashCode.Combine(string.GetHashCode(text, StringComparison.Ordinal), size, width);
+    }
     private sealed class Entry(MaterialTextLayout layout) : IDisposable
     {
         public MaterialTextLayout Layout { get; } = layout;
@@ -212,9 +224,30 @@ public static partial class MaterialText
     public static bool RequiresShaping(string text)
     {
         ArgumentNullException.ThrowIfNull(text);
-        foreach (var rune in text.EnumerateRunes())
-            if (IsShapedCodePoint(rune.Value))
-                return true;
+        return RequiresShaping(text.AsSpan());
+    }
+
+    /// <summary>Same result as enumerating runes: unpaired surrogates never count as shaped.</summary>
+    internal static bool RequiresShaping(ReadOnlySpan<char> text)
+    {
+        // Every shaped code point is at or above U+0900; most UI text is entirely below it.
+        var start = text.IndexOfAnyInRange('ऀ', '￿');
+        if (start < 0) return false;
+        for (var i = start; i < text.Length; i++)
+        {
+            var c = text[i];
+            if (c < 0x0900) continue;
+            if (char.IsHighSurrogate(c))
+            {
+                if (i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
+                {
+                    if (IsShapedCodePoint(char.ConvertToUtf32(c, text[i + 1]))) return true;
+                    i++;
+                }
+                continue;
+            }
+            if (IsShapedCodePoint(c)) return true;
+        }
         return false;
     }
 
@@ -223,10 +256,16 @@ public static partial class MaterialText
 
     public static Vector2 Measure(string text, bool hideTextAfterDoubleHash = false, float wrapWidth = 0)
     {
-        if (hideTextAfterDoubleHash && text.IndexOf("##", StringComparison.Ordinal) is var end && end >= 0)
-            text = text[..end];
-        if (MaterialTextRenderer.Current is { } renderer && RequiresShaping(text))
-            return renderer.GetLayout(text, ImGui.GetFontSize(), Math.Max(0, wrapWidth)).Size;
+        if (MaterialTextRenderer.Current is { } renderer)
+        {
+            var visible = hideTextAfterDoubleHash ? MaterialNativeCaption.VisibleSpan(text) : text.AsSpan();
+            if (RequiresShaping(visible))
+            {
+                var shaped = visible.Length == text.Length ? text : MaterialNativeCaption.Visible(text);
+                return renderer.GetLayout(shaped, ImGui.GetFontSize(), Math.Max(0, wrapWidth)).Size;
+            }
+        }
+        // Native measuring hides text after "##" itself.
         return ImGui.CalcTextSize(text, hideTextAfterDoubleHash, wrapWidth);
     }
 
@@ -249,8 +288,17 @@ public static partial class MaterialText
     public static void SingleLine(string text)
     {
         ArgumentNullException.ThrowIfNull(text);
-        var line = text.Replace('\r', ' ').Replace('\n', ' ').Trim();
         var width = Math.Max(1, ImGui.GetContentRegionAvail().X);
+        var line = SingleLineCache.Get(text, width);
+        ImGui.PushTextWrapPos(-1);
+        try { Text(line); }
+        finally { ImGui.PopTextWrapPos(); }
+    }
+
+    /// <summary>The visible line for SingleLine. Depends only on text, width, font and the shaping renderer.</summary>
+    private static string FitSingleLine(string text, float width)
+    {
+        var line = text.Replace('\r', ' ').Replace('\n', ' ').Trim();
         if (Measure(line).X > width)
         {
             const string ellipsis = "...";
@@ -267,9 +315,49 @@ public static partial class MaterialText
             var length = low == boundaries.Length ? line.Length : boundaries[low];
             line = Measure(ellipsis).X <= width ? line[..length] + ellipsis : string.Empty;
         }
-        ImGui.PushTextWrapPos(-1);
-        try { Text(line); }
-        finally { ImGui.PopTextWrapPos(); }
+        return line;
+    }
+
+    /// <summary>
+    /// Truncation runs a binary search of measured substrings; drawn every frame, that was the
+    /// most expensive text call. Results are kept per text, width, font and renderer.
+    /// </summary>
+    private static class SingleLineCache
+    {
+        private const int Capacity = 512;
+        [ThreadStatic] private static Dictionary<CacheKey, string>? lines;
+
+        public static unsafe string Get(string text, float width)
+        {
+            var renderer = MaterialTextRenderer.Current;
+            var font = ImGui.GetFont().Handle;
+            // A rebuilt font may reuse its address; its glyph table and atlas are new allocations.
+            var fontIdentity = new FontIdentity((nint)font, (nint)font->ContainerAtlas, (nint)font->Glyphs.Data, font->Glyphs.Size);
+            var key = new CacheKey(text, width, fontIdentity, ImGui.GetFontSize(), renderer);
+            lines ??= new(Capacity);
+            if (lines.TryGetValue(key, out var line)) return line;
+            line = FitSingleLine(text, width);
+            if (lines.Count >= Capacity) lines.Clear();
+            lines.Add(key, line);
+            return line;
+        }
+
+        private readonly record struct FontIdentity(nint Font, nint Atlas, nint Glyphs, int GlyphCount);
+
+        private readonly struct CacheKey(string text, float width, FontIdentity font, float fontSize, MaterialTextRenderer? renderer)
+            : IEquatable<CacheKey>
+        {
+            private readonly string text = text;
+            private readonly float width = width, fontSize = fontSize;
+            private readonly FontIdentity font = font;
+            private readonly MaterialTextRenderer? renderer = renderer;
+            public bool Equals(CacheKey other) => width.Equals(other.width) && fontSize.Equals(other.fontSize)
+                && font == other.font && ReferenceEquals(renderer, other.renderer)
+                && string.Equals(text, other.text, StringComparison.Ordinal);
+            public override bool Equals(object? obj) => obj is CacheKey other && Equals(other);
+            public override int GetHashCode() => HashCode.Combine(string.GetHashCode(text, StringComparison.Ordinal),
+                width, font, fontSize, renderer);
+        }
     }
 
     public static void Text(string text, float wrapWidth = 0)

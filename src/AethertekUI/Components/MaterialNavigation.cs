@@ -48,8 +48,20 @@ public static class MaterialTabs
         internal TabBarScope(string id,ImGuiTabBarFlags flags,IReadOnlyList<string> captions)
         {
             ArgumentNullException.ThrowIfNull(captions);
-            using var height=MaterialText.PushLineHeight(captions.Select(MaterialNativeCaption.Visible).ToArray());
-            active=Visible=ImGui.BeginTabBar(id,flags);
+            var height=new MaterialStyleScope();
+            try
+            {
+                if(MaterialTextRenderer.Current is not null)
+                {
+                    var lineHeight=ImGui.GetTextLineHeight();
+                    for(var i=0;i<captions.Count;i++)
+                        if(MaterialText.RequiresShaping(MaterialNativeCaption.VisibleSpan(captions[i])))
+                            lineHeight=Math.Max(lineHeight,MaterialText.Measure(MaterialNativeCaption.Visible(captions[i])).Y);
+                    MaterialText.ApplyLineHeight(ref height,lineHeight);
+                }
+                active=Visible=ImGui.BeginTabBar(id,flags);
+            }
+            finally { height.Dispose(); }
         }
         public void Dispose() { if(active) ImGui.EndTabBar(); active=false; }
     }
@@ -65,10 +77,10 @@ public static class MaterialTabs
             var owner=ImGui.GetCurrentContext().CurrentTabBar;
             if(!owner.IsNull && owner.FramePadding!=ImGui.GetStyle().FramePadding)
                 height.Style(ImGuiStyleVar.FramePadding,owner.FramePadding);
-            var caption=MaterialNativeCaption.Visible(label);
-            var shaped=MaterialNativeCaption.IsShaped(caption);
+            var shaped=MaterialNativeCaption.IsShaped(MaterialNativeCaption.VisibleSpan(label));
             var cyber=MaterialTheme.CurrentOrNull is { IsCyberpunk: true };
             if(!shaped && !cyber) { active=Visible=ImGui.BeginTabItem(label,flags);return; }
+            var caption=shaped?MaterialNativeCaption.Visible(label):"";
             var measured=shaped?MaterialText.Measure(caption):default;
             // Keep an explicit caller width and the original native label/ID.
             if(shaped && ((int)ImGui.GetCurrentContext().NextItemData.Flags&1)==0)
