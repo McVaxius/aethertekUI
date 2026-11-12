@@ -1,7 +1,7 @@
 # AethertekUI repository instructions
 
 This is the local, private AethertekUI library at `Z:\aethertekUI`, version
-0.3.0, targeting .NET 10 / Windows x64 and Dalamud API 15. Keep it local;
+0.3.2, targeting .NET 10 / Windows x64 and Dalamud API 15. Keep it local;
 publication belongs to mcvaxius. Do not create or contact a Git remote.
 
 Use only `mcvaxius` or `dhoggpt` when attributing this work to the user.

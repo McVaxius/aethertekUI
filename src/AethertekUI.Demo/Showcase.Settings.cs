@@ -10,18 +10,29 @@ internal sealed partial class Showcase
     private string preset="Evening route";
     private bool appearanceCompact=true,showCompact,showTransparency,showLanguage=true,appearanceTransparency=true,appearanceFade=true;
     private int appearanceOpacity=100,appearanceFadedOpacity=50;
+    private int appearanceHighlightContrast=0;
     private float appearanceFadeDelay=10;
     private string appearanceLanguage="en";
     private static readonly string[] Routes=["Nearest node","Lowest cost","Preferred location"];
     private void RebuildTheme()
     {
-        theme = new(seed, colorChoices, (MaterialDensity)density) { SurfaceOpacity = opacity };
+        theme = new(seed, colorChoices, (MaterialDensity)density)
+            { SurfaceOpacity = opacity, HighlightContrastPercent = appearanceHighlightContrast };
         theme.Motion.Enabled = !reduceMotion;
         appliedColorChoices = colorChoices;
     }
 
     private void DrawColourEditor(string id)
     {
+        ImGui.PushID(id);
+        try
+        {
+            MaterialText.Text("Highlight contrast");
+            ImGui.SetNextItemWidth(Math.Max(120 * MaterialTheme.Metrics.Scale, ImGui.GetContentRegionAvail().X));
+            ImGui.SliderInt("##highlight-contrast", ref appearanceHighlightContrast, 0, 100, "%d%%", ImGuiSliderFlags.AlwaysClamp);
+            ImGui.TextWrapped("Makes controls and selection states more distinct. Applies to all themed windows in this app.");
+        }
+        finally { ImGui.PopID(); }
         if (MaterialAppearanceSelector.DrawColors(id, ref colorChoices, ref seed,
             new("Colour", "Language", "Teal", "Blue", "Pink", "Custom RGB"),
             new("Auto", "Picker", "DEFAULT", "Background, controls and text follow your theme.", "Theme colour",

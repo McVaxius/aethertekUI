@@ -1035,7 +1035,7 @@ Ship `AethertekUI.dll` beside the plugin and `AethertekUI.Dalamud.dll` when used
 Keep host-owned `Dalamud.dll`, `Dalamud.Bindings.ImGui.dll` and `cimgui.dll` out
 of plugin distributions. Dalamud SDK hosts resolve their normal references;
 Microsoft.NET.Sdk hosts must resolve the same installed binding/distribution.
-Package identities are `AethertekUI` and `AethertekUI.Dalamud`, version 0.3.0;
+Package identities are `AethertekUI` and `AethertekUI.Dalamud`, version 0.3.2;
 local package generation is separate from normal build verification.
 For a protected module host, resolve core and adapter references to the exact
 assemblies already loaded by the public host; retain its dependency allow-list.

@@ -704,7 +704,7 @@ public static partial class MaterialSkin
         var theme = MaterialTheme.Current;
         var min = ImGui.GetCursorScreenPos();
         var max = min + new Vector2(ImGui.CalcItemWidth(), ImGui.GetFrameHeight());
-        PaintPanel(min, max, true, theme.IsSpatial ? theme.Colors.SurfaceContainer : theme.Colors.SurfaceContainerLowest,
+        PaintPanel(min, max, true, theme.ControlColor(theme.IsSpatial ? theme.Colors.SurfaceContainer : theme.Colors.SurfaceContainerLowest),
             (theme.IsCyberpunk ? 3 : 6) * MaterialTheme.Metrics.Scale, ImGui.GetStyle().Alpha);
         scope.Color(ImGuiCol.FrameBg, Vector4.Zero);
         scope.Color(ImGuiCol.FrameBgHovered, MaterialColor.Alpha(theme.Colors.OnSurface, .06f));

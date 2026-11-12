@@ -61,6 +61,7 @@ internal sealed partial class Showcase
     {
         if(!HasOpenWindows) return;
         if (colorChoices != appliedColorChoices) RebuildTheme();
+        theme.HighlightContrastPercent = appearanceHighlightContrast;
         using var glass = MaterialSkin.PushBackgroundRenderer(BackgroundRenderer,
             colorChoices.HasBackgroundBlur(colorChoices.Mode), colorChoices.BackgroundBlurPercent / 100f);
         {

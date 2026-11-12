@@ -37,16 +37,18 @@ internal static class MaterialDraw
         bool outline = false, ImDrawFlags corners = ImDrawFlags.RoundCornersAll, Vector4? border = null, bool preserveFill = false)
     {
         if (!state.Visible) return;
-        var c = MaterialTheme.Current.Colors;
+        var theme = MaterialTheme.Current;
+        var c = theme.Colors;
         var m = MaterialTheme.Metrics;
         var layer = Animate(state.Id,0,state.Pressed ? .14f : state.Hovered ? .08f : 0);
         var dl = ImGui.GetWindowDrawList();
         var fill = MaterialColor.Layer(background,foreground,layer);
+        if (!preserveFill) fill = theme.ControlColor(fill);
         if (MaterialSkin.HasMaterial) MaterialSkin.PaintControl(state,fill,radius,corners,preserveFill);
         else dl.AddRectFilled(state.Min,state.Max,Color(fill,state.Alpha),radius,corners);
         if (outline || state.Focused)
             dl.AddRect(state.Min+new Vector2(m.Border*.5f),state.Max-new Vector2(m.Border*.5f),
-                Color(state.Focused ? c.Primary : border ?? c.OutlineVariant,state.Alpha),radius,corners,state.Focused ? m.Border*2 : m.Border);
+                Color(state.Focused ? c.Primary : border ?? theme.ControlColor(c.OutlineVariant, border: true),state.Alpha),radius,corners,state.Focused ? m.Border*2 : m.Border);
     }
     public static void Content(in MaterialState state, string label, Vector4 color, MaterialIcon leading, MaterialIcon trailing,
         bool alignLeft = false)

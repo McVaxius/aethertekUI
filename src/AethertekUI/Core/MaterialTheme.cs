@@ -28,6 +28,20 @@ public sealed class MaterialTheme
     public Action<MaterialUiSoundCue>? Feedback { get; set; }
     public MaterialDensity Density { get; set; }
     public MaterialMotion Motion { get; } = new();
+    private int highlightContrastPercent;
+    /// <summary>Opt-in control contrast. Zero retains the existing appearance; the consumer owns persistence.</summary>
+    public int HighlightContrastPercent
+    {
+        get => highlightContrastPercent;
+        set => highlightContrastPercent = Math.Clamp(value, 0, 100);
+    }
+    /// <summary>Adjusts a themed control's RGB without changing its alpha, palette or semantic colours.</summary>
+    public Vector4 ControlColor(Vector4 color, bool border = false)
+    {
+        if (HighlightContrastPercent == 0 || IsNative || color.W <= 0) return color;
+        var result = Vector4.Lerp(color, Colors.OnSurface, HighlightContrastPercent / 100f * (border ? .35f : .18f));
+        return new(result.X, result.Y, result.Z, color.W);
+    }
     private float surfaceOpacity = .94f;
     public float SurfaceOpacity
     {
@@ -113,19 +127,19 @@ public sealed class MaterialTheme
             style.Color(ImGuiCol.WindowBg,theme.SurfaceColor(c.Background));
             style.Color(ImGuiCol.ChildBg,theme.SurfaceColor(c.SurfaceContainer));
             style.Color(ImGuiCol.PopupBg,theme.SurfaceColor(c.SurfaceContainerHigh));
-            style.Color(ImGuiCol.Border,c.OutlineVariant);
+            style.Color(ImGuiCol.Border,theme.ControlColor(c.OutlineVariant, border: true));
             var frameBackground = theme.IsSpatial ? c.Surface : c.SurfaceContainerHighest;
-            style.Color(ImGuiCol.FrameBg,frameBackground);
-            style.Color(ImGuiCol.FrameBgHovered,MaterialColor.Layer(frameBackground,c.OnSurface,.08f));
-            style.Color(ImGuiCol.FrameBgActive,c.SurfaceVariant);
+            style.Color(ImGuiCol.FrameBg,theme.ControlColor(frameBackground));
+            style.Color(ImGuiCol.FrameBgHovered,theme.ControlColor(MaterialColor.Layer(frameBackground,c.OnSurface,.08f)));
+            style.Color(ImGuiCol.FrameBgActive,theme.ControlColor(c.SurfaceVariant));
             var nativeButton = theme.IsLcars ? c.SurfaceContainerHighest : c.SecondaryContainer;
             var nativeButtonText = theme.IsLcars ? c.OnSurface : c.OnSecondaryContainer;
-            style.Color(ImGuiCol.Button,nativeButton);
-            style.Color(ImGuiCol.ButtonHovered,MaterialColor.Layer(nativeButton,nativeButtonText,.08f));
-            style.Color(ImGuiCol.ButtonActive,MaterialColor.Layer(nativeButton,nativeButtonText,.14f));
-            style.Color(ImGuiCol.Header,theme.IsLcars ? c.PrimaryContainer : c.SecondaryContainer);
-            style.Color(ImGuiCol.HeaderHovered,MaterialColor.Layer(c.SurfaceContainer,c.OnSurface,.08f));
-            style.Color(ImGuiCol.HeaderActive,c.PrimaryContainer);
+            style.Color(ImGuiCol.Button,theme.ControlColor(nativeButton));
+            style.Color(ImGuiCol.ButtonHovered,theme.ControlColor(MaterialColor.Layer(nativeButton,nativeButtonText,.08f)));
+            style.Color(ImGuiCol.ButtonActive,theme.ControlColor(MaterialColor.Layer(nativeButton,nativeButtonText,.14f)));
+            style.Color(ImGuiCol.Header,theme.ControlColor(theme.IsLcars ? c.PrimaryContainer : c.SecondaryContainer));
+            style.Color(ImGuiCol.HeaderHovered,theme.ControlColor(MaterialColor.Layer(c.SurfaceContainer,c.OnSurface,.08f)));
+            style.Color(ImGuiCol.HeaderActive,theme.ControlColor(c.PrimaryContainer));
             style.Color(ImGuiCol.CheckMark,theme.IsLcars ? MaterialLcars.ControlBlue : c.Primary);
             style.Color(ImGuiCol.SliderGrab,theme.IsLcars ? MaterialLcars.ControlBlue : c.Primary);
             style.Color(ImGuiCol.SliderGrabActive,theme.IsLcars ? MaterialLcars.ControlBlue : c.OnPrimaryContainer);

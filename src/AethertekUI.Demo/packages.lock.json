@@ -36,7 +36,7 @@
       "aethertekui.dalamud": {
         "type": "Project",
         "dependencies": {
-          "AethertekUI": "[0.3.1, )",
+          "AethertekUI": "[0.3.2, )",
           "Glasswork.Backend": "[0.1.0-beta.3, 0.1.0-beta.3]"
         }
       }

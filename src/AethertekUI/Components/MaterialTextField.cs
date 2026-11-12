@@ -25,7 +25,8 @@ public static class MaterialTextField
         MaterialControlAppearance? appearance=null)
     {
         if(maxLength<1) throw new ArgumentOutOfRangeException(nameof(maxLength));
-        var m=MaterialTheme.Metrics; var c=MaterialTheme.Current.Colors;
+        var theme=MaterialTheme.Current;
+        var m=MaterialTheme.Metrics; var c=theme.Colors;
         var controls=MaterialControls.Metrics;
         var height=controls.Height;
         if ((flags & ImGuiInputTextFlags.Password) == 0 && MaterialTextRenderer.Current is { } textRenderer
@@ -47,7 +48,7 @@ public static class MaterialTextField
         try
         {
         var dl=ImGui.GetWindowDrawList();
-        dl.AddRectFilled(origin,origin+size,MaterialDraw.Color(appearance?.Fill ?? c.SurfaceContainerHighest),rounding);
+        dl.AddRectFilled(origin,origin+size,MaterialDraw.Color(appearance?.Fill ?? theme.ControlColor(c.SurfaceContainerHighest)),rounding);
         var leadingWidth=leading==MaterialIcon.None?0:height-controls.Gap;
         var trailingWidth=clear||trailing!=MaterialIcon.None?height:0;
         var style=new MaterialStyleScope();
@@ -81,7 +82,7 @@ public static class MaterialTextField
         else if(trailing!=MaterialIcon.None)
             MaterialIcons.Draw(trailing,origin+new Vector2(size.X-height+(height-controls.IconSize)*.5f,(height-controls.IconSize)*.5f),controls.IconSize,c.OnSurfaceVariant);
         var hovered=!disabled&&ImGui.IsWindowHovered()&&ImGui.IsMouseHoveringRect(origin,origin+size);
-        dl.AddRect(origin,origin+size,MaterialDraw.Color(error?c.Error:focused?c.Primary:hovered?c.Outline:appearance?.Border ?? c.OutlineVariant),
+        dl.AddRect(origin,origin+size,MaterialDraw.Color(error?c.Error:focused?c.Primary:hovered?c.Outline:appearance?.Border ?? theme.ControlColor(c.OutlineVariant, border: true)),
             rounding,ImDrawFlags.RoundCornersAll,focused||error?m.Border*2:m.Border);
         ImGui.SetCursorScreenPos(origin);
         ImGui.Dummy(size);
