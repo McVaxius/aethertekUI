@@ -1010,10 +1010,11 @@ caller sizes and separate change events.
 Measure translated labels using the active host font. Budget pane, column,
 button and popup widths for longer translations; use wrapping tiles where
 appropriate and check clipped compact labels. Provide tooltips when necessary.
-There is no universal fixed width that fits every language. The host supplies
-and manages fonts with the required CJK glyphs; the library does not load fonts
-or guarantee localization coverage. Test actual host fonts and display scales
-when an integration is selected.
+There is no universal fixed width that fits every language. In a selected
+Dalamud adoption, shared MaterialFontAtlas supplies bundled faces and native
+merges; consumers retain role sizes, glyph ranges, locale and handle lifetime.
+Other consumers keep their existing font path until explicitly adopted.
+Localization coverage still requires actual glyph and display-scale checks.
 
 When selected typography work must retain the host atlas, a lexical
 `SetWindowFontScale` scope can adjust presentation while restoring the caller's
@@ -1035,7 +1036,7 @@ Ship `AethertekUI.dll` beside the plugin and `AethertekUI.Dalamud.dll` when used
 Keep host-owned `Dalamud.dll`, `Dalamud.Bindings.ImGui.dll` and `cimgui.dll` out
 of plugin distributions. Dalamud SDK hosts resolve their normal references;
 Microsoft.NET.Sdk hosts must resolve the same installed binding/distribution.
-Package identities are `AethertekUI` and `AethertekUI.Dalamud`, version 0.3.2;
+Package identities are `AethertekUI` and `AethertekUI.Dalamud`, version 0.3.3;
 local package generation is separate from normal build verification.
 For a protected module host, resolve core and adapter references to the exact
 assemblies already loaded by the public host; retain its dependency allow-list.
@@ -1466,8 +1467,9 @@ Reuse the consumer's existing configuration and save path. Prefer `UiLanguage`
 equivalent preferences already present. Old configurations receive missing
 defaults without resetting other values or changing their version. Commit
 custom RGB on edit completion, not every draw; apply resource changes at the
-next frame boundary. Consumers own translations, preferences, fonts and textures;
-do not add a shared settings service.
+next frame boundary. Consumers own translations, preferences, role sizes/ranges,
+locale, font-handle lifetime and textures; shared font assets/loading use
+MaterialFontAtlas. Do not add a shared settings service.
 
 Use relative OKLCH colours for the whole theme: backgrounds, panels, fields,
 table surfaces, borders, foregrounds, gradients and neutral badges. Preserve
@@ -1481,24 +1483,37 @@ Changing only primary controls while leaving decorative slate colours fixed is
 incomplete. Build and cache the palette on preference changes, outside Draw.
 
 Fonts must cover the selected resource set and every native dropdown name,
-including CJK names when English is selected. Build and check the same required
-text set, including English fallback strings and untranslated UI symbols such
-as native favorites and support labels. A symbol-face merge adds only the glyphs
-requested by its ranges. Prioritize the selected locale's
-CJK glyphs and retain Latin/Cyrillic coverage. In Dalamud, use managed atlas
-handles and explicitly merge the host's `DalamudAsset.NotoSansCjkRegular` when
-needed (verified bundled TTC faces: Japanese 0, Korean 1, Simplified Chinese 2,
-Traditional Chinese 3). These bundled faces have identical glyph coverage;
-merge one face per role, selecting the active locale's regional forms (Japanese
-0 for other locales), rather than merging every CJK face. Preserve required
-ranges, font sizes, symbol merges and host-language coverage. Read the
-collection's PostScript face names and recheck coverage when the host asset
-changes; do not guess its face order. Do not pass neutral
-codes such as `ja`, `ko` or `zh-Hans` to `AttachWindowsDefaultFont`: unsupported
-cultures can silently add nothing. Check actual managed-handle readiness, load
-errors and glyph coverage after atlas rebuilds. Dispose consumer-owned handles;
-never distribute Windows fonts. Temporary host fonts cannot qualify for visual
-acceptance.
+including CJK names when English is selected. Keep the same required-text set,
+English fallbacks, native symbols and locale number separators in strict glyph
+checks; never filter a missing glyph to make a check pass.
+
+Use the shared `AethertekUI.Dalamud.MaterialFontAtlas.CreateFont(atlas, weight,
+sizePx, glyphRanges, language)` managed-atlas route for portable UI text.
+`MaterialFontWeight.Regular/Semibold/Bold` are 400/600/700. The adapter bundles
+unmodified Selawik 1.01 faces and their OFL copyright/notice under
+`Fonts/Selawik` beside its DLL; preserve that directory in consumer packages.
+Do not copy the loading/merge implementation into consumers or require installed
+Segoe/system fonts. Consumers retain role selection, original sizes/ranges,
+readiness/error checks, events and handle disposal; adopting shared support does
+not replace other plugins' fonts or release those consumers automatically.
+
+The shared PreBuild keeps the 4096 dimensions, one selected native
+`NotoSansCjkRegular` face per role, host-language and game-symbol registrations.
+Verified TTC faces are JP=0, KR=1, SC=2, TC=3; aliases zh-CN/zh-TW are retained.
+The native extra-language merge depends on host configuration and adds CJK;
+game-symbol coverage is SeIconChar-only. Neither supplies French U+202F.
+The shared PostBuild preserves the original codepoint and completes this blank
+narrow nonbreaking space with a positive one-fifth-em advance when absent, then
+uses the native lookup fixup. Execute the real PostBuild in native glyph checks
+for every role and rebuild; require U+202F itself and narrower-than-space advance.
+Never replace visible missing glyphs with invented shapes or generic fallback.
+
+Keep CJK, native language and game-symbol callbacks, font failures and lifecycle
+assertions. Native merges require the matching host assets; an offline
+file/CJK bake is limited evidence, not managed-host/game-font readiness.
+Check actual required glyphs after rebuilds and retain optional Hindi/shaping
+availability gates. Never install or distribute Windows fonts.
+Temporary host fonts cannot qualify for visual acceptance.
 
 For the selected suite CJK rollout, set `build.NewImAtlas.TexDesiredWidth`
 and `TexDesiredHeight` to 4096 inside each existing managed `OnPreBuild`
@@ -1531,12 +1546,11 @@ test. This establishes initial managed-host load acceptance for BFE, not a
 measured load time or acceptance for other consumers. Language changes, complete
 glyph coverage and scale rebuilds were not separately reported as tested.
 
-Segoe UI text faces omit some symbols used in existing tooltips, including
-U+26AB (black circle). Merge the installed `seguisym.ttf` through the managed
-atlas for required symbol coverage, alongside the selected CJK merges, in every
-font role that can render those strings. Validate the actual required glyphs;
-report the missing code point/role instead of suppressing the check. Font files
-remain on the host and are never packaged.
+Selawik and the native CJK face together must cover the consumer's actual
+symbols; shared language/game merges retain their native scope and are not
+universal symbol fallbacks. A required visible symbol that remains absent must
+fail with its codepoint/role. Do not restore `seguisym.ttf` or another system-font
+assumption, remove the assertion, or alter translated text to hide the gap.
 Read/write source and resources as UTF-8. Windows PowerShell's default native
 pipe encoding can replace non-Latin translations and diacritics with `?`; use
 explicit UTF-8 transport and inspect the resulting characters.

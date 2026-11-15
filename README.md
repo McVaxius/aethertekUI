@@ -2,7 +2,7 @@
 
 A C# immediate-mode UI library for FFXIV-related applications:
 MD3-inspired dark surfaces, compact desktop controls, cached OKLCH seed-derived
-themes, scoped styles and native ImGui interaction. Version **0.3.2**.
+themes, scoped styles and native ImGui interaction. Version **0.3.3**.
 The core targets .NET 10 / Windows x64 and uses Dalamud.Bindings.ImGui; the
 optional adapter integrates with Dalamud API 15 hosts.
 
@@ -66,7 +66,7 @@ pilot; other consumers require their selected adoption and host acceptance.
 owner's default-muted `MaterialUiSoundPlayer`. Its original short PCM tones use
 an owned Windows waveOut handle, with no external assets or dependencies.
 Settings and titlebar mute share the consumer's existing configuration/save path.
-Library version is 0.3.2. See the [usage skill](skills/aethertek-ui/SKILL.md)
+Library version is 0.3.3. See the [usage skill](skills/aethertek-ui/SKILL.md)
 for lifecycle details.
 
 The 2026-10-23 FrenRider follow-up aligns LCARS native controls with the artwork:
@@ -211,13 +211,19 @@ public void Draw(float hostScale)
 Wrap the complete Begin/End lifecycle. For WindowSystem, use
 `MaterialWindowHost.Draw(windows)` or a `BeginFrame` scope around `windows.Draw()`.
 The default Compatible mode preserves host layout; Material applies full geometry.
-Consumers own lifecycle, configuration, actions, domain colors, fonts and textures.
+Consumers own lifecycle, configuration, actions, domain colors, role sizes/ranges,
+locale, font handles and textures. The optional adapter's shared
+`MaterialFontAtlas.CreateFont` supplies OFL-licensed Selawik 1.01 Regular,
+Semibold and Bold through the existing managed atlas, retaining native CJK,
+language and game-symbol merges. Keep `Fonts/Selawik` and its `LICENSE.txt`
+beside the adapter DLL in consumer packages. No system-font installation is
+required; existing consumers retain their font path until explicitly adopted.
 The appearance selector supports square swatches and rectangular colour fields
 with a Palette mesh, current swatch and chevron, retaining the existing popup IDs.
 Explicit control metrics also size that Palette within the field's available space.
 Ship the library DLLs beside the plugin while keeping Dalamud assemblies host-owned.
 
-Use stable IDs independent of translated labels, host-provided CJK fonts, and
+Use stable IDs independent of translated labels, retained native CJK merges, and
 content-aware sizing for longer translations. Component type names and signatures
 remain Material-prefixed, and internal ImGui IDs are preserved. Read the
 [usage skill](skills/aethertek-ui/SKILL.md),
@@ -296,6 +302,8 @@ for later selected plugin integrations. See [known limitations](docs/KNOWN_LIMIT
 and the [smoke-test guide](docs/PROTOTYPE_SMOKE_TEST.md).
 
 ## Evolution and provenance
+
+2026-11-15 - 0.3.3: add shared managed-atlas support with bundled OFL-licensed Selawik Regular, Semibold and Bold. Preserve consumer-owned role sizes, ranges, locale and handles, native CJK/language/game-symbol merges, and strict required-glyph checks across rebuilds. Shared assets and the licence travel with consumer packages; existing consumers retain their current font path until explicitly adopted. Game/Wine rendering acceptance remains separate.
 
 2026-11-12 - 0.3.2: add opt-in control highlight contrast and expose it in the showcase Appearance and Colour editors. Existing consumers retain zero contrast by default; text, semantic colours, native geometry and alpha are preserved. FrenRider pilot host/GPU acceptance and wider consumer rollout remain separate.
 

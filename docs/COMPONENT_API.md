@@ -1,5 +1,22 @@
 # Component API contract
 
+## Shared managed fonts (optional Dalamud adapter)
+
+`AethertekUI.Dalamud.MaterialFontAtlas.CreateFont(IFontAtlas atlas,
+MaterialFontWeight weight, float sizePx, ushort[] glyphRanges, string language)`
+returns a consumer-owned `IFontHandle`. Weights Regular/Semibold/Bold are
+400/600/700. Callers retain their role sizes, ranges, locale, readiness/error
+checks, subscriptions and disposal; no existing font owner is replaced globally.
+
+The adapter owns the unmodified Selawik 1.01 assets and OFL notice under
+`Fonts/Selawik`. Preserve this directory beside its DLL in final packages.
+Each rebuild retains native CJK regional/language/game-symbol merges and supplies
+missing U+202F as actual blank narrow spacing without changing the source text.
+Native font data is atlas-owned and ranges are pinned through building; no font
+pointer is retained across rebuilds. Keep strict required-glyph checks, including
+all roles/rebuilds. Managed-host readiness and game/GPU rendering remain separate
+from offline glyph verification; optional shaping availability remains caller-owned.
+
 ## Adaptive sizing (v0.3)
 
 See [Adaptive sizing and host compatibility](ADAPTIVE_SIZING.md) for units, ownership and upgrade behavior.

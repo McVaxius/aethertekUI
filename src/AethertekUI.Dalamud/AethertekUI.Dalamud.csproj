@@ -8,6 +8,7 @@
   <ItemGroup>
     <None Include="../../README.md" Pack="true" PackagePath="/"/>
     <None Update="Notices/Glasswork.MIT.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Pack="true" PackagePath="contentFiles/any/any/Notices/" PackageCopyToOutput="true"/>
+    <Content Include="Fonts/Selawik/*.ttf;Fonts/Selawik/LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Pack="true" PackagePath="contentFiles/any/any/Fonts/Selawik/" PackageCopyToOutput="true"/>
     <ProjectReference Include="../AethertekUI/AethertekUI.csproj"/>
     <PackageReference Include="Glasswork.Backend" Version="[0.1.0-beta.3]"/>
     <Reference Include="Dalamud"><HintPath>$(DalamudLibPath)/Dalamud.dll</HintPath><Private>false</Private></Reference>

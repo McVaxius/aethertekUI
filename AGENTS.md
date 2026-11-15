@@ -1,7 +1,7 @@
 # AethertekUI repository instructions
 
 This is the local, private AethertekUI library at `Z:\aethertekUI`, version
-0.3.2, targeting .NET 10 / Windows x64 and Dalamud API 15. Keep it local;
+0.3.3, targeting .NET 10 / Windows x64 and Dalamud API 15. Keep it local;
 publication belongs to mcvaxius. Do not create or contact a Git remote.
 
 Use only `mcvaxius` or `dhoggpt` when attributing this work to the user.
@@ -24,7 +24,10 @@ build, existing tests and the independent project-reference consumer check.
 
 Use native ImGui interaction, semantic theme roles, stable IDs, balanced scopes
 and bounded motion state. Consumers own lifecycle, configuration, game actions,
-domain status colors, fonts and textures. Keep the MD3-inspired dark/OKLCH basis.
+domain status colors, role sizes, glyph ranges, locale, font-handle lifetime and
+textures. AethertekUI's shared managed-atlas path owns portable font assets and
+loading; existing consumers keep their font path until explicitly adopted.
+Keep the MD3-inspired dark/OKLCH basis.
 
 `PROJECT_MISSION.md`, GBR documents, prior verification reports, and
 `eng/*Gbr*`, `eng/GbrUiProbe/`, `eng/Record-GbrOutputs.targets` are preserved
