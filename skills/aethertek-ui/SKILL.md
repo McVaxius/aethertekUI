@@ -1482,6 +1482,36 @@ unavailable, update and DTR status meanings and external brand colours explicit.
 Changing only primary controls while leaving decorative slate colours fixed is
 incomplete. Build and cache the palette on preference changes, outside Draw.
 
+For encounter/radar/telegraph overlays in any edited/touched project in the
+selected work, keep ordinary controls/chrome/themes/sizing/layout policy separate.
+Owners supply CurrentTime/stored Activation, dangerous/personal eligibility and
+native layer/height/lifetime rules. Per-AOE helpers must not inspect module clocks,
+AI selectors or actor ownership.
+Apply smooth time emphasis only where an actual deadline exists; primitive draw
+calls alone carry no activation time. Equal deadlines keep equal temporal weight
+independent of row order/count/overlap. Persistent/default and still-owned
+unresolved hazards remain visible until owner retirement; personal risky
+containment adds emphasis without changing temporal weight.
+
+Use light nonzero fills for visible sources and clear semantic-RGB outlines;
+preserve explicit transparency intent and legible
+safe/stack/spread/bait/parry/tether/assignment/actor markers.
+Presentation is read-only: do not mutate/filter/sort shared ActiveAOEs or alter
+AI selection, ownership, lifecycle, geometry, casts/deadlines, projection layers
+or height. Sort only separate local drawing indices with stable ties, retaining
+original semantic/AI indices; a drawing view may expose already-authored later
+rows. Draw every retained visual row; never cull only because shapes overlap.
+Label forecasts honestly and never invent timing.
+
+Qualify the actual selected backend/DLL surface; source checkout APIs alone
+do not prove frozen-DLL compatibility. Preserve backend-specific projection
+fields and owner scopes. Stable local submission order does not prove global,
+cross-component or GPU compositing; retain unresolved layer and marker-overdraw
+limits.
+Use the existing approved inventory/history to track the entire touched
+drawing surface. A narrow increment or pure-style test does not certify
+all drawings, rendering or live play.
+
 Fonts must cover the selected resource set and every native dropdown name,
 including CJK names when English is selected. Keep the same required-text set,
 English fallbacks, native symbols and locale number separators in strict glyph
