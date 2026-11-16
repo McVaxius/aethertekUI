@@ -10,8 +10,20 @@ public static class MaterialFontAtlas
     public static IFontHandle CreateFont(IFontAtlas atlas, MaterialFontWeight weight,
         float sizePx, ushort[] glyphRanges, string language)
     {
+        var assetRoot = Path.GetDirectoryName(typeof(MaterialFontAtlas).Assembly.Location);
+        if (string.IsNullOrEmpty(assetRoot))
+            throw new InvalidOperationException("Supply the host plugin asset directory when the font adapter is loaded from memory.");
+        return CreateFont(atlas, weight, sizePx, glyphRanges, language, assetRoot);
+    }
+
+    public static IFontHandle CreateFont(IFontAtlas atlas, MaterialFontWeight weight,
+        float sizePx, ushort[] glyphRanges, string language, string assetRoot)
+    {
         ArgumentNullException.ThrowIfNull(atlas);
         ArgumentNullException.ThrowIfNull(glyphRanges);
+        ArgumentException.ThrowIfNullOrWhiteSpace(assetRoot);
+        if (!Path.IsPathFullyQualified(assetRoot))
+            throw new ArgumentException("The plugin asset directory must be absolute.", nameof(assetRoot));
         if (!float.IsFinite(sizePx) || sizePx <= 0) throw new ArgumentOutOfRangeException(nameof(sizePx));
         var file = weight switch
         {
@@ -20,8 +32,7 @@ public static class MaterialFontAtlas
             MaterialFontWeight.Bold => "selawkb.ttf",
             _ => throw new ArgumentOutOfRangeException(nameof(weight)),
         };
-        var path = Path.Combine(Path.GetDirectoryName(typeof(MaterialFontAtlas).Assembly.Location)!,
-            "Fonts", "Selawik", file);
+        var path = Path.Combine(assetRoot, "Fonts", "Selawik", file);
         return atlas.NewDelegateFontHandle(toolkit => toolkit.OnPreBuild(build =>
         {
             build.NewImAtlas.TexDesiredWidth = 4096;

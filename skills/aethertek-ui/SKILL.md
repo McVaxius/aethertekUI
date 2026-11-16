@@ -1518,7 +1518,12 @@ English fallbacks, native symbols and locale number separators in strict glyph
 checks; never filter a missing glyph to make a check pass.
 
 Use the shared `AethertekUI.Dalamud.MaterialFontAtlas.CreateFont(atlas, weight,
-sizePx, glyphRanges, language)` managed-atlas route for portable UI text.
+sizePx, glyphRanges, language, assetRoot)` managed-atlas route for portable UI text.
+Pass the consumer's absolute physical plugin directory as `assetRoot`; Dalamud
+provides it through `pluginInterface.AssemblyLocation.DirectoryName`. Host memory
+loading can leave `Assembly.Location` empty. The five-argument overload remains
+for file-backed adapters; do not substitute AppContext, CWD, system-font paths or
+directory probing for the host-provided root.
 `MaterialFontWeight.Regular/Semibold/Bold` are 400/600/700. The adapter bundles
 unmodified Selawik 1.01 faces and their OFL copyright/notice under
 `Fonts/Selawik` beside its DLL; preserve that directory in consumer packages.
