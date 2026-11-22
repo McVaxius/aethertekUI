@@ -2,7 +2,7 @@
 
 A C# immediate-mode UI library for FFXIV-related applications:
 MD3-inspired dark surfaces, compact desktop controls, cached OKLCH seed-derived
-themes, scoped styles and native ImGui interaction. Version **0.3.4**.
+themes, scoped styles and native ImGui interaction. Version **0.3.5**.
 The core targets .NET 10 / Windows x64 and uses Dalamud.Bindings.ImGui; the
 optional adapter integrates with Dalamud API 15 hosts.
 
@@ -66,7 +66,7 @@ pilot; other consumers require their selected adoption and host acceptance.
 owner's default-muted `MaterialUiSoundPlayer`. Its original short PCM tones use
 an owned Windows waveOut handle, with no external assets or dependencies.
 Settings and titlebar mute share the consumer's existing configuration/save path.
-Library version is 0.3.4. See the [usage skill](skills/aethertek-ui/SKILL.md)
+Library version is 0.3.5. See the [usage skill](skills/aethertek-ui/SKILL.md)
 for lifecycle details.
 
 The 2026-10-23 FrenRider follow-up aligns LCARS native controls with the artwork:
@@ -223,6 +223,9 @@ Pass the consumer's absolute physical asset directory as the sixth `CreateFont`
 argument. Dalamud consumers obtain it from `pluginInterface.AssemblyLocation.DirectoryName`;
 memory-loaded assemblies can have an empty `Assembly.Location`. The original
 five-argument overload remains available for file-backed adapters.
+
+Use the same install directory for other bundled files. Check the published package for exact relative paths and filename casing. Keep per-user settings and overrides in the plugin config directory. Loot Goblin 1.1.1.17 passed its updater-installed Linux/Wine pilot using this approach. See the [usage skill](skills/aethertek-ui/SKILL.md) for repeatable consumer validation.
+
 The appearance selector supports square swatches and rectangular colour fields
 with a Palette mesh, current swatch and chevron, retaining the existing popup IDs.
 Explicit control metrics also size that Palette within the field's available space.
@@ -307,6 +310,10 @@ for later selected plugin integrations. See [known limitations](docs/KNOWN_LIMIT
 and the [smoke-test guide](docs/PROTOTYPE_SMOKE_TEST.md).
 
 ## Evolution and provenance
+
+2026-11-22 - 0.3.5 - Linux/Wine integration
+
+- **Updated Linux/Wine integration guidance.** Use the Dalamud install directory to find bundled fonts and data. Loot Goblin 1.1.1.17 passed its updater-installed Linux pilot.
 
 2026-11-15 - 0.3.4: accept an explicit physical plugin asset directory for shared fonts so memory-loaded adapters can resolve bundled assets. Preserve the existing five-argument API for file-backed adapters and all font faces, native merges and handle ownership.
 
