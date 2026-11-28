@@ -10,6 +10,49 @@ namespace AethertekUI.Tests;
 public unsafe class IntegrationNativeTests
 {
     [Fact]
+    public void ReleasingRasterizedFontInputPreservesNativeDrawing()
+    {
+        using var host = new NativeTestContext();
+        var atlas = ImGui.ImFontAtlas();
+        try
+        {
+            var fontPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Fonts), "seguisb.ttf");
+            var font = atlas.AddFontFromFileTTF(fontPath, 22);
+            byte* pixels = null;
+            int width = 0, height = 0;
+            atlas.GetTexDataAsRGBA32(0, &pixels, &width, &height);
+            var index = atlas.TextureIndexCommon;
+            Assert.InRange(index, 0, atlas.Textures.Size - 1);
+            atlas.SetTexID(index, new ImTextureID((nint)71));
+            Assert.True(atlas.ConfigData[0].FontData != null);
+
+            MaterialFontAtlas.ReleaseRasterizedInputs(atlas);
+            MaterialFontAtlas.ReleaseRasterizedInputs(atlas);
+            Assert.Equal(index, atlas.TextureIndexCommon);
+            Assert.True(atlas.ConfigData[0].FontData == null);
+
+            host.Frame(() =>
+            {
+                ImGui.PushFont(font);
+                try
+                {
+                    ImGui.Begin("Released source font", ImGuiWindowFlags.NoSavedSettings);
+                    try
+                    {
+                        var drawList = ImGui.GetWindowDrawList();
+                        var before = drawList.VtxBuffer.Size;
+                        ImGui.TextUnformatted("Ready");
+                        Assert.True(drawList.VtxBuffer.Size > before);
+                    }
+                    finally { ImGui.End(); }
+                }
+                finally { ImGui.PopFont(); }
+            });
+        }
+        finally { ImGui.Destroy(atlas); }
+    }
+
+    [Fact]
     public void CapturedCaptionFontReplacesNativeInkFromASeparateHostAtlas()
     {
         using var host=new NativeTestContext();

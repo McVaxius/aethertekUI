@@ -1,3 +1,4 @@
+using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.ManagedFontAtlas;
 
 namespace AethertekUI.Dalamud;
@@ -62,10 +63,22 @@ public static class MaterialFontAtlas
     /// <remarks>Subscribe to BuildStepChange only on an atlas that is rebuilt from its font handles.</remarks>
     public static void ReleaseRasterizedInputs(IFontAtlasBuildToolkit toolkit)
     {
-        // The managed host creates a fresh native atlas for each rebuild.
-        // At PostBuild the glyphs and texture pages no longer need the source data.
         if (toolkit.BuildStep == FontAtlasBuildStep.PostBuild)
-            toolkit.NewImAtlas.ClearInputData();
+            ReleaseRasterizedInputs(toolkit.NewImAtlas);
+    }
+
+    internal static unsafe void ReleaseRasterizedInputs(ImFontAtlasPtr atlas)
+    {
+        // Managed rebuilds use a fresh atlas. Keep the config records and common
+        // texture index: Dalamud's ImGui fork still reads them after rasterization.
+        for (var index = 0; index < atlas.ConfigData.Size; index++)
+        {
+            ref var config = ref atlas.ConfigData.Data[index];
+            if (config.FontData == null || config.FontDataOwnedByAtlas == 0) continue;
+            ImGui.MemFree(config.FontData);
+            config.FontData = null;
+            config.FontDataSize = 0;
+        }
     }
 
     private static unsafe void CompleteSpacing(IFontAtlasBuildToolkitPostBuild build)
