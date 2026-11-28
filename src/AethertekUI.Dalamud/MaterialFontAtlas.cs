@@ -48,6 +48,16 @@ public static class MaterialFontAtlas
         }).OnPostBuild(CompleteSpacing));
     }
 
+    /// <summary>Discards font source buffers after a dedicated managed atlas finishes rasterizing.</summary>
+    /// <remarks>Subscribe to BuildStepChange only on an atlas that is rebuilt from its font handles.</remarks>
+    public static void ReleaseRasterizedInputs(IFontAtlasBuildToolkit toolkit)
+    {
+        // The managed host creates a fresh native atlas for each rebuild.
+        // At PostBuild the glyphs and texture pages no longer need the source data.
+        if (toolkit.BuildStep == FontAtlasBuildStep.PostBuild)
+            toolkit.NewImAtlas.ClearInputData();
+    }
+
     private static unsafe void CompleteSpacing(IFontAtlasBuildToolkitPostBuild build)
     {
         var font = build.Font;

@@ -10,8 +10,9 @@ try {
         if ([Reflection.AssemblyName]::GetAssemblyName($path).Name -ne $name) { throw "Consumer assembly identity differs: $name" }
     }
     $dependencies = Get-Content (Join-Path $output 'ConsumerContract.deps.json') -Raw | ConvertFrom-Json
+    $version = ([xml](Get-Content Directory.Build.props -Raw)).Project.PropertyGroup.Version
     foreach ($name in @('AethertekUI','AethertekUI.Dalamud')) {
-        if (-not $dependencies.libraries.PSObject.Properties["$name/0.3.5"]) { throw "Consumer dependency missing: $name/0.3.5" }
+        if (-not $dependencies.libraries.PSObject.Properties["$name/$version"]) { throw "Consumer dependency missing: $name/$version" }
     }
     foreach ($name in @('Dalamud.dll','Dalamud.Bindings.ImGui.dll','cimgui.dll')) {
         if (Test-Path -LiteralPath (Join-Path $output $name)) { throw "Host-owned assembly copied into consumer: $name" }

@@ -1036,7 +1036,7 @@ Ship `AethertekUI.dll` beside the plugin and `AethertekUI.Dalamud.dll` when used
 Keep host-owned `Dalamud.dll`, `Dalamud.Bindings.ImGui.dll` and `cimgui.dll` out
 of plugin distributions. Dalamud SDK hosts resolve their normal references;
 Microsoft.NET.Sdk hosts must resolve the same installed binding/distribution.
-Package identities are `AethertekUI` and `AethertekUI.Dalamud`, version 0.3.5;
+Package identities are `AethertekUI` and `AethertekUI.Dalamud`, version 0.3.6;
 local package generation is separate from normal build verification.
 For a protected module host, resolve core and adapter references to the exact
 assemblies already loaded by the public host; retain its dependency allow-list.
@@ -1547,6 +1547,25 @@ narrow nonbreaking space with a positive one-fifth-em advance when absent, then
 uses the native lookup fixup. Execute the real PostBuild in native glyph checks
 for every role and rebuild; require U+202F itself and narrower-than-space advance.
 Never replace visible missing glyphs with invented shapes or generic fallback.
+
+With AethertekUI 0.3.6 or later, a plugin that owns a dedicated managed atlas
+can release rasterized font inputs once per build. Subscribe the callback
+before creating font handles and unsubscribe before disposing the atlas.
+
+```csharp
+atlas.BuildStepChange += MaterialFontAtlas.ReleaseRasterizedInputs;
+// On disposal, before disposing the atlas:
+atlas.BuildStepChange -= MaterialFontAtlas.ReleaseRasterizedInputs;
+```
+
+Use this on an atlas rebuilt from its font handles. Keep the normal per-role
+PreBuild and PostBuild callbacks, including spacing and symbol merges. The host
+rasterizes a fresh atlas on locale or scale changes. Keep the cleanup off any
+shared atlas or atlas whose consumers need its input data after PostBuild.
+Compare private process memory with the window closed, after first open and
+after close. Check reopen, locale and scale changes, unload, CJK characters
+and game symbols. The callback targets retained font input memory. First-open
+rasterization and the rendered texture pages still require memory.
 
 Keep CJK, native language and game-symbol callbacks, font failures and lifecycle
 assertions. Native merges require the matching host assets; an offline

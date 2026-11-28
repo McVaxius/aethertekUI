@@ -2,7 +2,7 @@
 
 A C# immediate-mode UI library for FFXIV-related applications:
 MD3-inspired dark surfaces, compact desktop controls, cached OKLCH seed-derived
-themes, scoped styles and native ImGui interaction. Version **0.3.5**.
+themes, scoped styles and native ImGui interaction. Version **0.3.6**.
 The core targets .NET 10 / Windows x64 and uses Dalamud.Bindings.ImGui; the
 optional adapter integrates with Dalamud API 15 hosts.
 
@@ -66,7 +66,7 @@ pilot; other consumers require their selected adoption and host acceptance.
 owner's default-muted `MaterialUiSoundPlayer`. Its original short PCM tones use
 an owned Windows waveOut handle, with no external assets or dependencies.
 Settings and titlebar mute share the consumer's existing configuration/save path.
-Library version is 0.3.5. See the [usage skill](skills/aethertek-ui/SKILL.md)
+Library version is 0.3.6. See the [usage skill](skills/aethertek-ui/SKILL.md)
 for lifecycle details.
 
 The 2026-10-23 FrenRider follow-up aligns LCARS native controls with the artwork:
@@ -310,6 +310,10 @@ for later selected plugin integrations. See [known limitations](docs/KNOWN_LIMIT
 and the [smoke-test guide](docs/PROTOTYPE_SMOKE_TEST.md).
 
 ## Evolution and provenance
+
+2026-11-27 - 0.3.6 - Managed font atlas memory
+
+- **Reduced retained font memory for opted-in consumers.** Dedicated managed atlases can release font source buffers after rasterization while preserving glyphs and texture pages. The usage skill covers activation and validation.
 
 2026-11-22 - 0.3.5 - Linux/Wine integration
 
