@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.ManagedFontAtlas;
 using Dalamud.Plugin.Services;
 
@@ -25,14 +26,27 @@ public static class MaterialUiResourceDiagnostics
         var textureBytes = pixels * (rgbaPages * 4L + alphaPages * alphaBytes);
         var rasterBytes = pixels * (rgbaPages * 4L + alphaPages);
         var alphaFormat = alphaBytes == 2 ? "B4G4R4A4" : "BGRA8";
+        var sourceBytes = OwnedFontInputBytes(atlas);
         return FormattableString.Invariant(
-            $"fontHandles={fontHandles} atlas={atlas.TexWidth}x{atlas.TexHeight} pages={atlas.Textures.Size} alphaPages={alphaPages} alphaUpload={alphaFormat} rgbaPages={rgbaPages} sharedPages={sharedPages} rasterBytes={rasterBytes} estimatedFontTextureBytes={textureBytes}");
+            $"fontHandles={fontHandles} atlas={atlas.TexWidth}x{atlas.TexHeight} pages={atlas.Textures.Size} alphaPages={alphaPages} alphaUpload={alphaFormat} rgbaPages={rgbaPages} sharedPages={sharedPages} ownedFontInputBytes={sourceBytes} rasterBytes={rasterBytes} estimatedFontTextureBytes={textureBytes}");
+    }
+
+    internal static unsafe long OwnedFontInputBytes(ImFontAtlasPtr atlas)
+    {
+        long bytes = 0;
+        for (var index = 0; index < atlas.ConfigData.Size; index++)
+        {
+            var config = atlas.ConfigData[index];
+            if (config.FontData != null && config.FontDataOwnedByAtlas != 0)
+                bytes += config.FontDataSize;
+        }
+        return bytes;
     }
 
     public static string ProcessMemory()
     {
         using var process = Process.GetCurrentProcess();
         return FormattableString.Invariant(
-            $"managedBytes={GC.GetTotalMemory(false)} privateBytes={process.PrivateMemorySize64} workingSetBytes={process.WorkingSet64}");
+            $"managedBytes={GC.GetTotalMemory(false)} managedCommittedBytes={GC.GetGCMemoryInfo().TotalCommittedBytes} privateBytes={process.PrivateMemorySize64} workingSetBytes={process.WorkingSet64}");
     }
 }

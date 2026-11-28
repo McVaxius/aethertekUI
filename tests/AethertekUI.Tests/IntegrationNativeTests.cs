@@ -24,12 +24,12 @@ public unsafe class IntegrationNativeTests
             var index = atlas.TextureIndexCommon;
             Assert.InRange(index, 0, atlas.Textures.Size - 1);
             atlas.SetTexID(index, new ImTextureID((nint)71));
-            Assert.True(atlas.ConfigData[0].FontData != null);
+            Assert.True(MaterialUiResourceDiagnostics.OwnedFontInputBytes(atlas) > 0);
 
             MaterialFontAtlas.ReleaseRasterizedInputs(atlas);
             MaterialFontAtlas.ReleaseRasterizedInputs(atlas);
             Assert.Equal(index, atlas.TextureIndexCommon);
-            Assert.True(atlas.ConfigData[0].FontData == null);
+            Assert.Equal(0L, MaterialUiResourceDiagnostics.OwnedFontInputBytes(atlas));
 
             host.Frame(() =>
             {

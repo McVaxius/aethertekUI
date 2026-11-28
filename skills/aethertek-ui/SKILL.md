@@ -1569,6 +1569,12 @@ and the atlas when its views close. Use this cleanup only when the host
 allocates a fresh atlas on rebuild. Native status bar text and toasts should
 use lightweight translations independently of the window atlas.
 
+In an opted-in memory test, call MaterialUiResourceDiagnostics.DescribeAtlas
+before ReleaseRasterizedInputs to see the owned font source bytes, raster
+payload and estimated texture bytes. Sample ProcessMemory at lifecycle
+transitions. Keep actual Linux PSS + SwapPss from matched cold starts separate
+from these process counters and GPU texture estimates.
+
 Exercise a real font push and draw after cleanup as part of offline validation.
 Footballer 2.0.0.20 also passed Linux main-window open and close. Its English
 window went from zero handles closed to four open and back to zero. The open

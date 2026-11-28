@@ -40,6 +40,15 @@ only the owned source buffers in PostBuild and preserves the render metadata.
 Use it on an atlas the host recreates on rebuild. Test a native font push and
 draw after cleanup, then exercise open and close on the target host.
 
+For an opt-in memory investigation, sample the existing
+MaterialUiResourceDiagnostics at resource transitions. In PostBuild, call
+DescribeAtlas before ReleaseRasterizedInputs to capture the bytes still
+owned by the atlas. Its texture numbers estimate new page payload and exclude
+shared pages. ProcessMemory reports managed estimates, committed GC memory from
+the most recent GC, and process counters. Compare Linux PSS + SwapPss across
+matched cold starts for total memory. Process counters cannot attribute memory
+to a particular plugin or measure GPU residency.
+
 ## Shared materials and colour preferences
 
 Store `MaterialColorSettings` through the consumer's existing configuration.
