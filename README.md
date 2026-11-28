@@ -313,7 +313,7 @@ and the [smoke-test guide](docs/PROTOTYPE_SMOKE_TEST.md).
 
 2026-11-27 - 0.3.6 - Managed font atlas memory
 
-- **Reduced retained font memory for opted-in consumers.** Dedicated managed atlases can release font source buffers after rasterization while preserving glyphs and texture pages. The usage skill covers activation and validation.
+- **Reduced retained font memory for opted-in consumers.** Use the adapter at `0166edf` or later. The corrected post-build callback frees atlas-owned font buffers while preserving the common texture index and other metadata used by ImGui to draw. See the [integration guide](docs/INTEGRATION_GUIDE.md#managed-font-atlas-lifetime) for the ownership and verification steps.
 
 2026-11-22 - 0.3.5 - Linux/Wine integration
 

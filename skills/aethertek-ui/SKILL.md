@@ -1548,9 +1548,14 @@ uses the native lookup fixup. Execute the real PostBuild in native glyph checks
 for every role and rebuild; require U+202F itself and narrower-than-space advance.
 Never replace visible missing glyphs with invented shapes or generic fallback.
 
-With AethertekUI 0.3.6 or later, a plugin that owns a dedicated managed atlas
-can release rasterized font inputs once per build. Subscribe the callback
-before creating font handles and unsubscribe before disposing the atlas.
+Use the corrected AethertekUI adapter from commit `0166edf` or later when
+opting into rasterized font input cleanup. The version alone is insufficient
+because the original 0.3.6 adapter used `ClearInputData()`. Dalamud's ImGui fork
+resets `TextureIndexCommon` in that call. The first font push then indexes the
+atlas texture vector at -1, which can crash the renderer.
+
+Create a dedicated managed atlas on first open, keep only the roles required by
+visible views, and subscribe the corrected callback before creating handles.
 
 ```csharp
 atlas.BuildStepChange += MaterialFontAtlas.ReleaseRasterizedInputs;
@@ -1558,14 +1563,19 @@ atlas.BuildStepChange += MaterialFontAtlas.ReleaseRasterizedInputs;
 atlas.BuildStepChange -= MaterialFontAtlas.ReleaseRasterizedInputs;
 ```
 
-Use this on an atlas rebuilt from its font handles. Keep the normal per-role
-PreBuild and PostBuild callbacks, including spacing and symbol merges. The host
-rasterizes a fresh atlas on locale or scale changes. Keep the cleanup off any
-shared atlas or atlas whose consumers need its input data after PostBuild.
-Compare private process memory with the window closed, after first open and
-after close. Check reopen, locale and scale changes, unload, CJK characters
-and game symbols. The callback targets retained font input memory. First-open
-rasterization and the rendered texture pages still require memory.
+The callback frees only atlas-owned font source buffers after rasterization.
+It keeps the native config, glyphs, texture pages and common texture index.
+Keep the normal per-role spacing and symbol merges, then dispose the handles
+and the atlas when its views close. Use this cleanup only when the host
+allocates a fresh atlas on rebuild. Native status bar text and toasts should
+use lightweight translations independently of the window atlas.
+
+Exercise a real font push and draw after cleanup as part of offline validation.
+Footballer 2.0.0.20 also passed Linux main-window open and close. Its English
+window went from zero handles closed to four open and back to zero. The open
+atlas was 1024 × 1024 with one new page estimated at 2 MiB and five shared
+pages. Compare like-for-like process measurements before attributing memory
+savings to a plugin.
 
 Keep CJK, native language and game-symbol callbacks, font failures and lifecycle
 assertions. Native merges require the matching host assets; an offline

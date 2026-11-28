@@ -23,6 +23,23 @@ For a game-anchored overlay, material.BeginFrame(applyMetrics: false) applies co
 
 Call Controller.Apply(newSettings) on configuration change. It validates before mutation, skips identical values and rebuilds the theme when seed RGB or Colors settings change. Density, alpha and reduced motion reuse the cached palette. Keep one controller/theme per ImGui context and do not switch contexts or threads inside scopes.
 
+## Managed font atlas lifetime
+
+Create an isolated Dalamud atlas when a plugin window opens. Register the font
+roles used by the open views and retain compatible roles across appearance
+changes. Keep status bar and toast translations independent of window font
+handles. Dispose handles and the atlas through the owning UI lifecycle when
+the last view closes.
+
+Use `MaterialFontAtlas.ReleaseRasterizedInputs` from revision `0166edf` or later
+as the atlas's `BuildStepChange` callback, and unsubscribe before disposal.
+The original 0.3.6 callback used `ClearInputData()`. In Dalamud's ImGui fork,
+that operation clears `TextureIndexCommon`. A later font push can then index
+the texture vector at -1 and crash the renderer. The corrected callback frees
+only the owned source buffers in PostBuild and preserves the render metadata.
+Use it on an atlas the host recreates on rebuild. Test a native font push and
+draw after cleanup, then exercise open and close on the target host.
+
 ## Shared materials and colour preferences
 
 Store `MaterialColorSettings` through the consumer's existing configuration.
