@@ -58,6 +58,26 @@ internal sealed unsafe class MaterialDesktopCapture : IDisposable
     private bool pipelineFailed;
     private bool disposed;
     private string? lastFailure;
+    internal long EstimatedTextureBytes
+    {
+        get
+        {
+            var bytes = EstimateTexture(atlas) + EstimateTexture(windowCopy) + EstimateTexture(windowBackdrop);
+            foreach (var output in outputs)
+                bytes += EstimateTexture(output.GameImage) + EstimateTexture(output.CaptureImage) + EstimateTexture(output.StagingImage);
+            return bytes;
+        }
+    }
+
+    private static long EstimateTexture(ID3D11Texture2D* texture)
+    {
+        if (texture == null) return 0;
+        D3D11_TEXTURE2D_DESC desc;
+        texture->GetDesc(&desc);
+        var bytesPerPixel = desc.Format == DXGI_FORMAT.DXGI_FORMAT_R16G16B16A16_FLOAT ? 8 : 4;
+        return (long)desc.Width * desc.Height * bytesPerPixel * desc.ArraySize * desc.SampleDesc.Count;
+    }
+
     internal bool IsPaused { get; private set; }
     internal bool HasRetainedImages => !disposed && synchronizedTimestamp >= 0 &&
         outputs.Exists(output => output.HasImage && output.PresentTimestamp > output.MinimumPresentTimestamp);

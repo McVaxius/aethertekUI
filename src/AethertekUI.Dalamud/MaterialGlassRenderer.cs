@@ -23,6 +23,9 @@ public sealed class MaterialGlassRenderer : IMaterialBackgroundRenderer, IDispos
     private MaterialDetachedGlass? detached;
     private nint currentDevice;
     private bool disposed;
+    private bool demandManaged;
+    private bool usedLayer;
+    private bool usedDetached;
     private IDalamudTextureWrap? imageWrap;
     private string? imagePath;
     public bool ImageAvailable => imageWrap is { Width: > 0, Height: > 0 };
@@ -57,7 +60,9 @@ public sealed class MaterialGlassRenderer : IMaterialBackgroundRenderer, IDispos
     public bool DrawPlainImage(ImDrawListPtr drawList, Vector2 min, Vector2 max)
     {
         if (!ImageMode) return false;
-        detached?.MarkImageWindow();
+        if (demandManaged && !ImGui.GetWindowViewport().IsNull
+            && ImGui.GetWindowViewport().ID != ImGui.GetMainViewport().ID) GetDetached()?.MarkImageWindow();
+        else detached?.MarkImageWindow();
         if (!ImageAvailable || imageWrap == null || drawList.IsNull) return false;
         var root = ImGuiP.GetCurrentWindowRead().RootWindow;
         var uv = CoverUv(new(imageWrap.Width, imageWrap.Height), root.Size);
@@ -95,32 +100,57 @@ public sealed class MaterialGlassRenderer : IMaterialBackgroundRenderer, IDispos
     internal MaterialGlassRenderer(Func<ImDrawListPtr, Vector2, Vector2, float, Vector4, float, bool, bool> record)
         => this.record = record ?? throw new ArgumentNullException(nameof(record));
 
-    public void BeginFrame()
+    public void BeginFrame() => BeginFrameCore(blur: true, image: false);
+
+    /// <summary>Starts a draw frame and releases resources unused by the selected backdrop.</summary>
+    public void BeginFrame(bool blur, bool image)
+    {
+        demandManaged = true;
+        BeginFrameCore(blur, image);
+    }
+
+    private void BeginFrameCore(bool blur, bool image)
     {
         if (disposed || deviceHandle == null) return;
         var device = deviceHandle();
-        if (device != currentDevice)
+        if (device != currentDevice || (demandManaged && (!blur || image || !usedLayer)))
         {
-            // A resized back buffer keeps its device; a replaced/lost device needs a new layer.
             layer?.Dispose();
             layer = null;
+        }
+        if (device != currentDevice || (demandManaged && ((!blur && !image) || !usedDetached)))
+        {
             detached?.Dispose();
             detached = null;
-            currentDevice = device;
-            if (device != 0)
-            {
-                layer = new GlassLayer(() => currentDevice, log)
-                {
-                    MaxQuality = GlassQuality.Full,
-                    // Pin the material and continuous Frost percentage; Reduced quantizes Frost.
-                    BudgetMilliseconds = double.PositiveInfinity,
-                };
-                detached = new MaterialDetachedGlass(device, pluginLog!);
-                pluginLog?.Debug("[AethertekUI] Glasswork pilot: native renderers initialized.");
-            }
+        }
+        currentDevice = device;
+        usedLayer = false;
+        usedDetached = false;
+        if (!demandManaged && device != 0)
+        {
+            layer ??= CreateLayer();
+            detached ??= new MaterialDetachedGlass(device, pluginLog!);
         }
         layer?.BeginFrame();
         detached?.BeginFrame();
+    }
+
+    private GlassLayer CreateLayer() => new(() => currentDevice, log)
+    {
+        MaxQuality = GlassQuality.Full,
+        // Pin the material and continuous Frost percentage; Reduced quantizes Frost.
+        BudgetMilliseconds = double.PositiveInfinity,
+    };
+
+    private MaterialDetachedGlass? GetDetached()
+    {
+        usedDetached = true;
+        if (detached == null && demandManaged && currentDevice != 0)
+        {
+            detached = new MaterialDetachedGlass(currentDevice, pluginLog!);
+            detached.BeginFrame();
+        }
+        return detached;
     }
 
     public unsafe void EndFrame(bool enabled)
@@ -148,9 +178,15 @@ public sealed class MaterialGlassRenderer : IMaterialBackgroundRenderer, IDispos
         if (!viewport.IsNull && viewport.ID != ImGui.GetMainViewport().ID)
         {
             TraceRoute(1, "detached viewport selected");
-            return detached?.TryDraw(drawList, min, max, rounding, in material, windowBackground) == true;
+            return GetDetached()?.TryDraw(drawList, min, max, rounding, in material, windowBackground) == true;
         }
         TraceRoute(2, "main viewport selected");
+        usedLayer = true;
+        if (layer == null && demandManaged && currentDevice != 0)
+        {
+            layer = CreateLayer();
+            layer.BeginFrame();
+        }
         if (layer == null || !layer.CanRecord()) return false;
 
         if (windowBackground)
@@ -171,8 +207,8 @@ public sealed class MaterialGlassRenderer : IMaterialBackgroundRenderer, IDispos
     private unsafe bool DrawImageBackground(ImDrawListPtr drawList, Vector2 min, Vector2 max, float rounding,
         in GlassMaterial material, bool windowBackground)
     {
-        detached?.MarkImageWindow();
-        if (detached == null || imageWrap == null) return false;
+        if (imageWrap == null || GetDetached() is not { } imageRenderer) return false;
+        imageRenderer.MarkImageWindow();
         var view = (ID3D11ShaderResourceView*)(nint)imageWrap.Handle.Handle;
         if (view == null) return false;
         ID3D11Resource* resource = null;
@@ -189,7 +225,7 @@ public sealed class MaterialGlassRenderer : IMaterialBackgroundRenderer, IDispos
             var root = ImGuiP.GetCurrentWindowRead().RootWindow;
             var origin = root.Pos - viewport.Pos;
             var bounds = new Vector4(origin.X, origin.Y, origin.X + root.Size.X, origin.Y + root.Size.Y);
-            return detached.TryDraw(drawList, min, max, rounding, in material, windowBackground, (nint)texture, bounds);
+            return imageRenderer.TryDraw(drawList, min, max, rounding, in material, windowBackground, (nint)texture, bounds);
         }
         finally
         {
@@ -225,6 +261,15 @@ public sealed class MaterialGlassRenderer : IMaterialBackgroundRenderer, IDispos
             if (command.UserCallback != null && command.UserCallbackData != null) count++;
         }
         return count;
+    }
+
+    /// <summary>Describes live routes and estimated payloads. The host owns shared image textures.</summary>
+    public string DescribeResources()
+    {
+        var imageCount = ImageAvailable ? 1 : 0;
+        var imageBytes = imageCount == 0 ? 0L : (long)imageWrap!.Width * imageWrap.Height * 4;
+        return FormattableString.Invariant(
+            $"glassMain={layer is not null} glassDetached={detached is not null} sharedImages={imageCount} estimatedSharedImageRgbaBytes={imageBytes} estimatedCaptureBytes={detached?.EstimatedCaptureBytes ?? 0}");
     }
 
     public void ReleaseResources()

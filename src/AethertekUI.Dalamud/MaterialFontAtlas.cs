@@ -19,12 +19,21 @@ public static class MaterialFontAtlas
     public static IFontHandle CreateFont(IFontAtlas atlas, MaterialFontWeight weight,
         float sizePx, ushort[] glyphRanges, string language, string assetRoot)
     {
+        return CreateFont(atlas, weight, sizePx, glyphRanges, language, assetRoot, 4096, includeHostLanguage: true);
+    }
+
+    /// <summary>Creates a font with explicit page dimensions and locale coverage for an isolated atlas.</summary>
+    public static IFontHandle CreateFont(IFontAtlas atlas, MaterialFontWeight weight,
+        float sizePx, ushort[] glyphRanges, string language, string assetRoot,
+        int pageSize, bool includeHostLanguage)
+    {
         ArgumentNullException.ThrowIfNull(atlas);
         ArgumentNullException.ThrowIfNull(glyphRanges);
         ArgumentException.ThrowIfNullOrWhiteSpace(assetRoot);
         if (!Path.IsPathFullyQualified(assetRoot))
             throw new ArgumentException("The plugin asset directory must be absolute.", nameof(assetRoot));
         if (!float.IsFinite(sizePx) || sizePx <= 0) throw new ArgumentOutOfRangeException(nameof(sizePx));
+        if (pageSize <= 0) throw new ArgumentOutOfRangeException(nameof(pageSize));
         var file = weight switch
         {
             MaterialFontWeight.Regular => "selawk.ttf",
@@ -35,15 +44,16 @@ public static class MaterialFontAtlas
         var path = Path.Combine(assetRoot, "Fonts", "Selawik", file);
         return atlas.NewDelegateFontHandle(toolkit => toolkit.OnPreBuild(build =>
         {
-            build.NewImAtlas.TexDesiredWidth = 4096;
-            build.NewImAtlas.TexDesiredHeight = 4096;
+            build.NewImAtlas.TexDesiredWidth = pageSize;
+            build.NewImAtlas.TexDesiredHeight = pageSize;
             build.Font = build.AddFontFromFile(path, new SafeFontConfig { SizePx = sizePx, GlyphRanges = glyphRanges });
             build.AddDalamudAssetFont(global::Dalamud.DalamudAsset.NotoSansCjkRegular, new SafeFontConfig
             {
                 SizePx = sizePx, MergeFont = build.Font, GlyphRanges = glyphRanges,
                 FontNo = language switch { "ko" => 1, "zh-Hans" or "zh-CN" => 2, "zh-Hant" or "zh-TW" => 3, _ => 0 },
             });
-            build.AttachExtraGlyphsForDalamudLanguage(new SafeFontConfig { SizePx = sizePx, MergeFont = build.Font });
+            if (includeHostLanguage)
+                build.AttachExtraGlyphsForDalamudLanguage(new SafeFontConfig { SizePx = sizePx, MergeFont = build.Font });
             build.AddGameSymbol(new SafeFontConfig { SizePx = sizePx, MergeFont = build.Font });
         }).OnPostBuild(CompleteSpacing));
     }

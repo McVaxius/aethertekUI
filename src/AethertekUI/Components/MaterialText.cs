@@ -145,6 +145,20 @@ public sealed unsafe class MaterialTextRenderer : IDisposable
         return entry;
     }
 
+    /// <summary>Counts owned shaped-text textures and their uncompressed RGBA payload.</summary>
+    public (int Count, long Bytes) GetTextureUsage()
+    {
+        var count = 0;
+        long bytes = 0;
+        foreach (var entry in entries.Values)
+        {
+            if (entry.Texture is null) continue;
+            count++;
+            bytes += (long)entry.RasterSize.X * (long)entry.RasterSize.Y * 4;
+        }
+        return (count, bytes);
+    }
+
     public void Clear()
     {
         ObjectDisposedException.ThrowIf(disposed, this);
@@ -154,8 +168,8 @@ public sealed unsafe class MaterialTextRenderer : IDisposable
         {
             if ((nint)nativeContext.Handle != context)
                 throw new InvalidOperationException("Release text resources in their original ImGui context.");
-            if (nativeContext.WithinFrameScope || (nativeContext.FrameCountRendered != nativeContext.FrameCount
-                && entries.Values.Any(entry => entry.Texture is not null && entry.LastFrame == nativeContext.FrameCount)))
+            if ((nativeContext.WithinFrameScope || nativeContext.FrameCountRendered != nativeContext.FrameCount)
+                && entries.Values.Any(entry => entry.Texture is not null && entry.LastFrame == nativeContext.FrameCount))
                 throw new InvalidOperationException("Release text textures after native frame submission.");
         }
         foreach (var entry in entries.Values) entry.Dispose();

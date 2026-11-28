@@ -96,6 +96,8 @@ internal sealed unsafe class MaterialDetachedGlass : IDisposable
     private bool imageModeActive;
     private readonly HashSet<nint> imageWindows = new();
     internal bool ScreenshotsPaused => capture?.IsPaused == true;
+    internal long EstimatedCaptureBytes => capture?.EstimatedTextureBytes ?? 0;
+
     internal bool CanPauseForScreenshots
     {
         get
@@ -129,8 +131,6 @@ internal sealed unsafe class MaterialDetachedGlass : IDisposable
             context = immediate;
             if (context == null) throw new InvalidOperationException("The Direct3D device has no immediate context.");
 
-            renderer = new GlassRenderer(device);
-            capture = new MaterialDesktopCapture((nint)device, log);
             exclusion = new MaterialCaptureExclusion();
             ownerHandle = GCHandle.Alloc(this);
             callbacks = (CallbackState*)NativeMemory.AllocZeroed((nuint)sizeof(CallbackState));
@@ -167,7 +167,7 @@ internal sealed unsafe class MaterialDetachedGlass : IDisposable
     internal bool TryDraw(ImDrawListPtr drawList, Vector2 min, Vector2 max, float rounding,
         in GlassMaterial material, bool windowBackground, nint imageSource = 0, Vector4 imageRootBounds = default)
     {
-        if (disposed || faulted || callbacks == null || capture == null || exclusion == null || renderer == null ||
+        if (disposed || faulted || callbacks == null || exclusion == null ||
             drawList.IsNull || !Finite(min) || !Finite(max) || !float.IsFinite(rounding) ||
             max.X <= min.X || max.Y <= min.Y) return false;
 
@@ -194,6 +194,8 @@ internal sealed unsafe class MaterialDetachedGlass : IDisposable
         if (!Finite(origin) || !Finite(clipMin) || !Finite(clipMax) ||
             clipMax.X <= clipMin.X || clipMax.Y <= clipMin.Y) return false;
 
+        renderer ??= new GlassRenderer(device);
+        capture ??= new MaterialDesktopCapture((nint)device, log);
         var shape = GlassShape.FromRect(min, max - min, rounding);
         var drawMaterial = material;
         ApplyPointerLight(in shape, ref drawMaterial);
