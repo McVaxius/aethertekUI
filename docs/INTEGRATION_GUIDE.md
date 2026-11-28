@@ -31,7 +31,7 @@ changes. Keep status bar and toast translations independent of window font
 handles. Dispose handles and the atlas through the owning UI lifecycle when
 the last view closes.
 
-Use `MaterialFontAtlas.ReleaseRasterizedInputs` from revision `0166edf` or later
+Use `MaterialFontAtlas.ReleaseRasterizedInputs` from AethertekUI 0.3.7 or later
 as the atlas's `BuildStepChange` callback, and unsubscribe before disposal.
 The original 0.3.6 callback used `ClearInputData()`. In Dalamud's ImGui fork,
 that operation clears `TextureIndexCommon`. A later font push can then index

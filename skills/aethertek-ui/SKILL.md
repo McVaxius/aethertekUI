@@ -1036,7 +1036,7 @@ Ship `AethertekUI.dll` beside the plugin and `AethertekUI.Dalamud.dll` when used
 Keep host-owned `Dalamud.dll`, `Dalamud.Bindings.ImGui.dll` and `cimgui.dll` out
 of plugin distributions. Dalamud SDK hosts resolve their normal references;
 Microsoft.NET.Sdk hosts must resolve the same installed binding/distribution.
-Package identities are `AethertekUI` and `AethertekUI.Dalamud`, version 0.3.6;
+Package identities are `AethertekUI` and `AethertekUI.Dalamud`, version 0.3.7;
 local package generation is separate from normal build verification.
 For a protected module host, resolve core and adapter references to the exact
 assemblies already loaded by the public host; retain its dependency allow-list.
@@ -1548,11 +1548,10 @@ uses the native lookup fixup. Execute the real PostBuild in native glyph checks
 for every role and rebuild; require U+202F itself and narrower-than-space advance.
 Never replace visible missing glyphs with invented shapes or generic fallback.
 
-Use the corrected AethertekUI adapter from commit `0166edf` or later when
-opting into rasterized font input cleanup. The version alone is insufficient
-because the original 0.3.6 adapter used `ClearInputData()`. Dalamud's ImGui fork
-resets `TextureIndexCommon` in that call. The first font push then indexes the
-atlas texture vector at -1, which can crash the renderer.
+Opt into rasterized font input cleanup on AethertekUI 0.3.7 or later.
+The original 0.3.6 adapter used `ClearInputData()`, which resets
+`TextureIndexCommon` in Dalamud's ImGui fork. The first font push can then
+index the atlas texture vector at -1 and crash the renderer.
 
 Create a dedicated managed atlas on first open, keep only the roles required by
 visible views, and subscribe the corrected callback before creating handles.
@@ -1574,7 +1573,8 @@ Exercise a real font push and draw after cleanup as part of offline validation.
 Footballer 2.0.0.20 also passed Linux main-window open and close. Its English
 window went from zero handles closed to four open and back to zero. The open
 atlas was 1024 × 1024 with one new page estimated at 2 MiB and five shared
-pages. Compare like-for-like process measurements before attributing memory
+pages. Krangler 2.0.0.17 passed its Linux pilot with profiling off.
+Compare like-for-like process measurements before attributing memory
 savings to a plugin.
 
 Keep CJK, native language and game-symbol callbacks, font failures and lifecycle
